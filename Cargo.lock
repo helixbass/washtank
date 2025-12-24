@@ -793,6 +793,7 @@ dependencies = [
  "crossterm",
  "ouroboros",
  "ropey",
+ "smallvec",
  "squalid",
  "tokio",
  "tokio-stream",

@@ -17,6 +17,7 @@ use crossterm::{
 };
 use ouroboros::self_referencing;
 use ropey::{Rope, RopeSlice};
+use smallvec::SmallVec;
 use squalid::{EverythingExt, _d};
 use tokio::fs;
 use tokio_stream::StreamExt;
@@ -251,16 +252,98 @@ impl Editor {
             cmp::min(num_lines - 1, top_line + usize::from(self.size.height) - 1);
         let num_relative_line_number_columns = self.num_relative_line_number_columns();
         let cursor_file_line = usize::from(self.cursor_file_line());
+        type IndexInHighlights = usize;
+        enum OpenHighlightOrProgress {
+            OpenHighlight(IndexInHighlights),
+            Next(IndexInHighlights),
+        }
+
+        impl Default for OpenHighlightOrProgress {
+            fn default() -> Self {
+                Self::Next(0)
+            }
+        }
+
+        impl OpenHighlightOrProgress {
+            pub fn as_next(&self) -> IndexInHighlights {
+                match self {
+                    Self::Next(index_in_highlights) => index_in_highlights,
+                    _ => panic!("expected next"),
+                }
+            }
+        }
+        let mut last_highlight: LastHighlightOrNone = _d();
         for line_num in top_line..=last_line_num_to_render {
             self.print_relative_line_number(
                 cursor_file_line,
                 line_num,
                 num_relative_line_number_columns,
             )?;
+            let line = self.current_file.rope().line(line_num);
+            let mut current_start_byte = self.current_file.rope().line_to_byte(line_num);
+            for chunk in line.chunks() {
+                let next_start_byte = current_start_byte + chunk.len();
+                let mut bytes_printed = 0;
+                if let OpenHighlightOrProgress::OpenHighlight(index_in_highlights) = last_highlight
+                {
+                    let open_highlight = self.current_tree_sitter_highlights[index_in_highlights];
+                    if open_highlight.end_byte < next_start_byte {
+                        let num_bytes_to_print = open_highlight.end_byte - current_start_byte;
+                        self.stdout.queue(Print(chunk[..num_bytes_to_print]))?;
+                        bytes_printed += num_bytes_to_print;
+                        self.stdout.queue(ResetColor)?;
+                        last_highlight = OpenHighlightOrProgress::Next(index_in_highlights + 1);
+                    } else {
+                        self.stdout.queue(Print(if chunk.ends_with("\n") {
+                            &chunk[..chunk.len() - 1]
+                        } else {
+                            chunk
+                        }))?;
+                        current_start_byte = next_start_byte;
+                        continue;
+                    }
+                }
+                while !matches!(
+                    last_highlight,
+                    OpenHighlightOrProgress::Next(last_highlight) if last_highlight >= self.current_tree_sitter_highlights.len()
+                        || self.current_tree_sitter_highlights[last_highlight].start_byte >= next_start_byte
+                ) && !matches!(
+                    last_highlight,
+                    OpenHighlightOrProgress::OpenHighlight(last_highlight) if self.current_tree_sitter_highlights[last_highlight].end_byte >= next_start_byte
+                ) {
+                    match last_highlight {
+                        OpenHighlightOrProgress::OpenHighlight(last_highlight) => {}
+                        OpenHighlightOrProgress::Next(last_highlight) => {
+                            let next_highlight =
+                                self.current_tree_sitter_highlights[last_highlight];
+                            let num_bytes_to_print = next_highlight.start_byte - current_start_byte;
+                            self.stdout
+                                .queue(Print(&chunk[bytes_printed..num_bytes_to_print]));
+                            bytes_printed += num_bytes_to_print;
+                            self.stdout.queue(SetForegroundColor(Color::Rgb {
+                                r: 0,
+                                g: 200,
+                                b: 0,
+                            }))?;
+                        }
+                    }
+                }
+                if still_some {
+                    self.stdout.queue(Print(if chunk.ends_with("\n") {
+                        &chunk[bytes_printed..chunk.len() - 1]
+                    } else {
+                        &chunk[bytes_printed..]
+                    }))?;
+                }
+                current_start_byte = next_start_byte;
+            }
             let line_without_trailing_newline = {
                 let line = self.current_file.rope().line(line_num);
+                let line_start_byte = self.current_file.rope().line_to_byte(line_num);
                 struct Chunks<'a> {
+                    bytes_already_seen: usize,
                     chunks: ropey::iter::Chunks<'a>,
+                    last_highlight: &'a mut Option<LastHighlight>,
                 }
 
                 impl<'a> Iterator for Chunks<'a> {
@@ -268,6 +351,7 @@ impl Editor {
 
                     fn next(&mut self) -> Option<Self::Item> {
                         let next = self.chunks.next()?;
+                        self.bytes_already_seen += next.len();
                         Some(if next.ends_with("\n") {
                             &next[..next.len() - 1]
                         } else {
@@ -284,6 +368,8 @@ impl Editor {
                     pub fn chunks(&self) -> Chunks<'a> {
                         Chunks {
                             chunks: self.rope_slice.chunks(),
+                            bytes_already_seen: _d(),
+                            last_highlight: &mut last_highlight,
                         }
                     }
                 }
