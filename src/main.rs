@@ -19,7 +19,8 @@ use ropey::{Rope, RopeSlice};
 use squalid::{EverythingExt, _d};
 use tokio::fs;
 use tokio_stream::StreamExt;
-use tree_sitter_highlight::{HighlightConfiguration, Highlighter};
+// use tree_sitter_highlight::{HighlightConfiguration, Highlighter};
+use tree_sitter::StreamingIterator;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -50,14 +51,15 @@ pub struct Editor {
     pub tree_sitter_parser: tree_sitter::Parser,
     pub current_tree_sitter_tree: Option<tree_sitter::Tree>,
     pub current_tree_sitter_highlights: Vec<TreeSitterHighlight>,
-    pub tree_sitter_highlighter: Highlighter,
-    pub tree_sitter_highlight_configuration: HighlightConfiguration,
-    pub tree_sitter_highlight_names: Vec<&'static str>,
+    // pub tree_sitter_highlighter: Highlighter,
+    // pub tree_sitter_highlight_configuration: HighlightConfiguration,
+    // pub tree_sitter_highlight_names: Vec<&'static str>,
+    pub tree_sitter_highlight_query: tree_sitter::Query,
 }
 
 impl Editor {
     fn try_new() -> Result<Self, anyhow::Error> {
-        let tree_sitter_highlight_names = vec!["comment", "string_literal"];
+        // let tree_sitter_highlight_names = vec!["comment", "string_literal"];
         Ok(Self {
             current_file: _d(),
             cursor_position: _d(),
@@ -76,19 +78,26 @@ impl Editor {
             },
             current_tree_sitter_tree: _d(),
             current_tree_sitter_highlights: _d(),
-            tree_sitter_highlighter: _d(),
-            tree_sitter_highlight_configuration: {
-                let mut highlight_configuration = HighlightConfiguration::new(
-                    tree_sitter_rust::LANGUAGE.into(),
-                    "rust",
-                    tree_sitter_rust::HIGHLIGHTS_QUERY,
-                    tree_sitter_rust::INJECTIONS_QUERY,
-                    "",
-                )?;
-                highlight_configuration.configure(&tree_sitter_highlight_names);
-                highlight_configuration
-            },
-            tree_sitter_highlight_names,
+            // tree_sitter_highlighter: _d(),
+            // tree_sitter_highlight_configuration: {
+            //     let mut highlight_configuration = HighlightConfiguration::new(
+            //         tree_sitter_rust::LANGUAGE.into(),
+            //         "rust",
+            //         tree_sitter_rust::HIGHLIGHTS_QUERY,
+            //         tree_sitter_rust::INJECTIONS_QUERY,
+            //         "",
+            //     )?;
+            //     highlight_configuration.configure(&tree_sitter_highlight_names);
+            //     highlight_configuration
+            // },
+            // tree_sitter_highlight_names,
+            tree_sitter_highlight_query: tree_sitter::Query::new(
+                &tree_sitter_rust::LANGUAGE.into(),
+                r#"
+                (comment) @comment
+                (string_literal) @string_literal
+            "#,
+            )?,
         })
     }
 }
@@ -159,10 +168,25 @@ impl Editor {
     }
 
     fn tree_sitter_highlights(&mut self) -> Result<(), anyhow::Error> {
-        self.current_tree_sitter_highlights = self
-            .tree_sitter_highlighter
-            .highlight(&self.tree_sitter_highlight_configuration)?
-            .collect::<Result<_, _>>()?;
+        // self.current_tree_sitter_highlights = self
+        //     .tree_sitter_highlighter
+        //     .highlight(&self.tree_sitter_highlight_configuration)?
+        //     .collect::<Result<_, _>>()?;
+        let mut query_cursor = tree_sitter::QueryCursor::new();
+        let mut captures = query_cursor.captures(
+            &self.tree_sitter_highlight_query,
+            self.current_tree_sitter_tree.as_ref().unwrap().root_node(),
+            self.current_file.rope(),
+        );
+        let mut ret: Vec<TreeSitterHighlight> = _d();
+        while let Some(capture) = captures.next() {
+            ret.push(TreeSitterHighlight {
+                start_byte: capture.captures[0].node.start_byte,
+                end_byte: capture.captures[0].node.end_byte,
+                highlight_type_index: capture.pattern_index,
+            });
+        }
+        self.current_tree_sitter_highlights = ret;
     }
 
     fn cursor_file_line(&self) -> u16 {
