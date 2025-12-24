@@ -309,8 +309,9 @@ impl Editor {
                                 self.current_tree_sitter_highlights[last_highlight_open];
                             let num_bytes_to_print =
                                 open_highlight.end_byte - current_start_byte + bytes_printed;
-                            self.stdout
-                                .queue(Print(&chunk[bytes_printed..num_bytes_to_print]))?;
+                            self.stdout.queue(Print(
+                                &chunk[bytes_printed..bytes_printed + num_bytes_to_print],
+                            ))?;
                             bytes_printed += num_bytes_to_print;
                             self.stdout.queue(ResetColor)?;
                             last_highlight = OpenHighlightOrProgress::Next(last_highlight_open + 1);
@@ -319,8 +320,9 @@ impl Editor {
                             let next_highlight =
                                 self.current_tree_sitter_highlights[last_highlight_next];
                             let num_bytes_to_print = next_highlight.start_byte - current_start_byte;
-                            self.stdout
-                                .queue(Print(&chunk[bytes_printed..num_bytes_to_print]))?;
+                            self.stdout.queue(Print(
+                                &chunk[bytes_printed..bytes_printed + num_bytes_to_print],
+                            ))?;
                             bytes_printed += num_bytes_to_print;
                             self.stdout.queue(SetForegroundColor(Color::Rgb {
                                 r: 0,
