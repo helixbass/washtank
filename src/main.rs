@@ -1,5 +1,4 @@
 use std::cmp;
-use std::fmt::{self, Display};
 use std::io::{stdout, StdoutLock, Write};
 use std::path::PathBuf;
 
@@ -17,7 +16,6 @@ use crossterm::{
 };
 use ouroboros::self_referencing;
 use ropey::{Rope, RopeSlice};
-use smallvec::SmallVec;
 use squalid::{EverythingExt, _d};
 use tokio::fs;
 use tokio_stream::StreamExt;
@@ -253,6 +251,7 @@ impl Editor {
         let num_relative_line_number_columns = self.num_relative_line_number_columns();
         let cursor_file_line = usize::from(self.cursor_file_line());
         type IndexInHighlights = usize;
+        #[derive(Copy, Clone)]
         enum OpenHighlightOrProgress {
             OpenHighlight(IndexInHighlights),
             Next(IndexInHighlights),
@@ -264,15 +263,7 @@ impl Editor {
             }
         }
 
-        impl OpenHighlightOrProgress {
-            pub fn as_next(&self) -> IndexInHighlights {
-                match self {
-                    Self::Next(index_in_highlights) => index_in_highlights,
-                    _ => panic!("expected next"),
-                }
-            }
-        }
-        let mut last_highlight: LastHighlightOrNone = _d();
+        let mut last_highlight: OpenHighlightOrProgress = _d();
         for line_num in top_line..=last_line_num_to_render {
             self.print_relative_line_number(
                 cursor_file_line,
@@ -289,7 +280,7 @@ impl Editor {
                     let open_highlight = self.current_tree_sitter_highlights[index_in_highlights];
                     if open_highlight.end_byte < next_start_byte {
                         let num_bytes_to_print = open_highlight.end_byte - current_start_byte;
-                        self.stdout.queue(Print(chunk[..num_bytes_to_print]))?;
+                        self.stdout.queue(Print(&chunk[..num_bytes_to_print]))?;
                         bytes_printed += num_bytes_to_print;
                         self.stdout.queue(ResetColor)?;
                         last_highlight = OpenHighlightOrProgress::Next(index_in_highlights + 1);
@@ -305,17 +296,27 @@ impl Editor {
                 }
                 while !matches!(
                     last_highlight,
-                    OpenHighlightOrProgress::Next(last_highlight) if last_highlight >= self.current_tree_sitter_highlights.len()
-                        || self.current_tree_sitter_highlights[last_highlight].start_byte >= next_start_byte
+                    OpenHighlightOrProgress::Next(last_highlight_next) if last_highlight_next >= self.current_tree_sitter_highlights.len()
+                        || self.current_tree_sitter_highlights[last_highlight_next].start_byte >= next_start_byte
                 ) && !matches!(
                     last_highlight,
-                    OpenHighlightOrProgress::OpenHighlight(last_highlight) if self.current_tree_sitter_highlights[last_highlight].end_byte >= next_start_byte
+                    OpenHighlightOrProgress::OpenHighlight(last_highlight_open) if self.current_tree_sitter_highlights[last_highlight_open].end_byte >= next_start_byte
                 ) {
                     match last_highlight {
-                        OpenHighlightOrProgress::OpenHighlight(last_highlight) => {}
-                        OpenHighlightOrProgress::Next(last_highlight) => {
+                        OpenHighlightOrProgress::OpenHighlight(last_highlight_open) => {
+                            let open_highlight =
+                                self.current_tree_sitter_highlights[last_highlight_open];
+                            let num_bytes_to_print =
+                                open_highlight.end_byte - current_start_byte + bytes_printed;
+                            self.stdout
+                                .queue(Print(&chunk[bytes_printed..num_bytes_to_print]))?;
+                            bytes_printed += num_bytes_to_print;
+                            self.stdout.queue(ResetColor)?;
+                            last_highlight = OpenHighlightOrProgress::Next(last_highlight_open + 1);
+                        }
+                        OpenHighlightOrProgress::Next(last_highlight_next) => {
                             let next_highlight =
-                                self.current_tree_sitter_highlights[last_highlight];
+                                self.current_tree_sitter_highlights[last_highlight_next];
                             let num_bytes_to_print = next_highlight.start_byte - current_start_byte;
                             self.stdout
                                 .queue(Print(&chunk[bytes_printed..num_bytes_to_print]));
@@ -325,68 +326,23 @@ impl Editor {
                                 g: 200,
                                 b: 0,
                             }))?;
+                            last_highlight =
+                                OpenHighlightOrProgress::OpenHighlight(last_highlight_next);
                         }
                     }
                 }
-                if still_some {
-                    self.stdout.queue(Print(if chunk.ends_with("\n") {
-                        &chunk[bytes_printed..chunk.len() - 1]
-                    } else {
-                        &chunk[bytes_printed..]
-                    }))?;
+                if chunk.ends_with("\n") {
+                    if bytes_printed < chunk.len() - 1 {
+                        self.stdout
+                            .queue(Print(&chunk[bytes_printed..chunk.len() - 1]));
+                    }
+                } else {
+                    if bytes_printed < chunk.len() {
+                        self.stdout.queue(Print(&chunk[bytes_printed..]));
+                    }
                 }
                 current_start_byte = next_start_byte;
             }
-            let line_without_trailing_newline = {
-                let line = self.current_file.rope().line(line_num);
-                let line_start_byte = self.current_file.rope().line_to_byte(line_num);
-                struct Chunks<'a> {
-                    bytes_already_seen: usize,
-                    chunks: ropey::iter::Chunks<'a>,
-                    last_highlight: &'a mut Option<LastHighlight>,
-                }
-
-                impl<'a> Iterator for Chunks<'a> {
-                    type Item = <ropey::iter::Chunks<'a> as Iterator>::Item;
-
-                    fn next(&mut self) -> Option<Self::Item> {
-                        let next = self.chunks.next()?;
-                        self.bytes_already_seen += next.len();
-                        Some(if next.ends_with("\n") {
-                            &next[..next.len() - 1]
-                        } else {
-                            next
-                        })
-                    }
-                }
-
-                struct Wrap<'a> {
-                    rope_slice: RopeSlice<'a>,
-                }
-
-                impl<'a> Wrap<'a> {
-                    pub fn chunks(&self) -> Chunks<'a> {
-                        Chunks {
-                            chunks: self.rope_slice.chunks(),
-                            bytes_already_seen: _d(),
-                            last_highlight: &mut last_highlight,
-                        }
-                    }
-                }
-
-                // copied this from RopeSlice's Display impl
-                impl<'a> Display for Wrap<'a> {
-                    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                        for chunk in self.chunks() {
-                            write!(f, "{}", chunk)?
-                        }
-                        Ok(())
-                    }
-                }
-
-                Wrap { rope_slice: line }
-            };
-            self.stdout.queue(Print(line_without_trailing_newline))?;
             if line_num != last_line_num_to_render {
                 self.stdout.queue(Print("\r\n"))?;
             }
@@ -490,6 +446,7 @@ pub struct Size {
     pub width: u16,
 }
 
+#[derive(Copy, Clone)]
 pub struct TreeSitterHighlight {
     pub start_byte: usize,
     pub end_byte: usize,
