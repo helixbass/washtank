@@ -1,13 +1,16 @@
+use std::io::stdout;
 use std::path::PathBuf;
 
 use clap::Parser;
 use crossterm::{
+    event::EventStream,
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ropey::Rope;
 use squalid::_d;
 use tokio::fs;
+use tokio_stream::StreamExt;
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -30,13 +33,22 @@ struct Args {
 #[derive(Default)]
 pub struct Editor {
     pub current_file: OpenFile,
+    pub cursor_position: Position,
 }
 
 impl Editor {
     async fn run(&mut self) -> Result<(), anyhow::Error> {
         let args = Args::parse();
 
-        self.open_file(args.file_name)?;
+        self.open_file(args.file_name).await?;
+
+        let mut event_stream = EventStream::new();
+
+        while let Some(event) = event_stream.next().await {
+            unimplemented!()
+        }
+
+        Ok(())
     }
 
     async fn open_file(&mut self, file_name: PathBuf) -> Result<(), anyhow::Error> {
@@ -46,7 +58,7 @@ impl Editor {
             path: file_name,
         });
 
-        unimplemented!();
+        // unimplemented!();
         Ok(())
     }
 }
@@ -70,4 +82,10 @@ pub struct OpenFileAnonymous {
 pub struct OpenFileNamed {
     pub rope: Rope,
     pub path: PathBuf,
+}
+
+#[derive(Default)]
+pub struct Position {
+    pub row: u32,
+    pub column: u32,
 }
