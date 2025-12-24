@@ -1,4 +1,4 @@
-use std::io::{stdout, StdoutLock};
+use std::io::{stdout, StdoutLock, Write};
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -88,6 +88,8 @@ impl Editor {
 
         self.stdout.queue(cursor::RestorePosition)?;
         self.stdout.queue(cursor::Show)?;
+
+        self.stdout.flush()?;
 
         Ok(())
     }
