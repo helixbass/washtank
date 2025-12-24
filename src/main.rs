@@ -11,7 +11,7 @@ use crossterm::{
         disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen,
         LeaveAlternateScreen,
     },
-    QueueableCommand,
+    ExecutableCommand, QueueableCommand,
 };
 use ropey::Rope;
 use squalid::_d;
@@ -55,6 +55,8 @@ impl Editor {
     async fn run(&mut self) -> Result<(), anyhow::Error> {
         let args = Args::parse();
 
+        self.set_cursor_position()?;
+
         self.open_file(args.file_name).await?;
 
         let mut event_stream = EventStream::new();
@@ -79,12 +81,21 @@ impl Editor {
         Ok(())
     }
 
+    fn set_cursor_position(&mut self) -> Result<(), anyhow::Error> {
+        self.stdout.execute(cursor::MoveTo(
+            self.cursor_position.row,
+            self.cursor_position.column,
+        ))?;
+
+        Ok(())
+    }
+
     fn rerender_screen(&mut self) -> Result<(), anyhow::Error> {
         self.stdout.queue(Clear(ClearType::All))?;
         self.stdout.queue(cursor::SavePosition)?;
         self.stdout.queue(cursor::Hide)?;
         self.stdout.queue(cursor::MoveTo(0, 0))?;
-        self.stdout.queue(Print("hello world"))?;
+        self.stdout.queue(Print("hello world\r\nsecond line"))?;
 
         self.stdout.queue(cursor::RestorePosition)?;
         self.stdout.queue(cursor::Show)?;
@@ -118,6 +129,6 @@ pub struct OpenFileNamed {
 
 #[derive(Default)]
 pub struct Position {
-    pub row: u32,
-    pub column: u32,
+    pub row: u16,
+    pub column: u16,
 }
