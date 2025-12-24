@@ -95,9 +95,10 @@ impl Editor {
             tree_sitter_highlight_query: tree_sitter::Query::new(
                 &tree_sitter_rust::LANGUAGE.into(),
                 r#"
-                (comment) @comment
-                (string_literal) @string_literal
-            "#,
+                    (line_comment) @line_comment
+                    (block_comment) @block_comment
+                    (string_literal) @string_literal
+                "#,
             )?,
         })
     }
@@ -141,6 +142,7 @@ impl Editor {
         self.rerender_screen()?;
 
         self.current_tree_sitter_tree = Some(self.parse_tree_sitter_from_scratch());
+        self.calculate_tree_sitter_highlights()?;
 
         Ok(())
     }
@@ -168,7 +170,7 @@ impl Editor {
         Ok(())
     }
 
-    fn tree_sitter_highlights(&mut self) -> Result<(), anyhow::Error> {
+    fn calculate_tree_sitter_highlights(&mut self) -> Result<(), anyhow::Error> {
         // self.current_tree_sitter_highlights = self
         //     .tree_sitter_highlighter
         //     .highlight(&self.tree_sitter_highlight_configuration)?
