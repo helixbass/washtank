@@ -142,6 +142,7 @@ impl Editor {
 
         self.current_tree_sitter_tree = Some(self.parse_tree_sitter_from_scratch());
         self.calculate_tree_sitter_highlights()?;
+        self.rerender_screen()?;
 
         Ok(())
     }
@@ -319,7 +320,7 @@ impl Editor {
                                 self.current_tree_sitter_highlights[last_highlight_next];
                             let num_bytes_to_print = next_highlight.start_byte - current_start_byte;
                             self.stdout
-                                .queue(Print(&chunk[bytes_printed..num_bytes_to_print]));
+                                .queue(Print(&chunk[bytes_printed..num_bytes_to_print]))?;
                             bytes_printed += num_bytes_to_print;
                             self.stdout.queue(SetForegroundColor(Color::Rgb {
                                 r: 0,
@@ -334,11 +335,11 @@ impl Editor {
                 if chunk.ends_with("\n") {
                     if bytes_printed < chunk.len() - 1 {
                         self.stdout
-                            .queue(Print(&chunk[bytes_printed..chunk.len() - 1]));
+                            .queue(Print(&chunk[bytes_printed..chunk.len() - 1]))?;
                     }
                 } else {
                     if bytes_printed < chunk.len() {
-                        self.stdout.queue(Print(&chunk[bytes_printed..]));
+                        self.stdout.queue(Print(&chunk[bytes_printed..]))?;
                     }
                 }
                 current_start_byte = next_start_byte;
