@@ -19,6 +19,7 @@ use ropey::{Rope, RopeSlice};
 use squalid::{EverythingExt, _d};
 use tokio::fs;
 use tokio_stream::StreamExt;
+use tree_sitter_highlight::{HighlightConfiguration, Highlighter};
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -48,10 +49,15 @@ pub struct Editor {
     pub top_line: u16,
     pub tree_sitter_parser: tree_sitter::Parser,
     pub current_tree_sitter_tree: Option<tree_sitter::Tree>,
+    pub current_tree_sitter_highlights: Vec<TreeSitterHighlight>,
+    pub tree_sitter_highlighter: Highlighter,
+    pub tree_sitter_highlight_configuration: HighlightConfiguration,
+    pub tree_sitter_highlight_names: Vec<&'static str>,
 }
 
 impl Editor {
     fn try_new() -> Result<Self, anyhow::Error> {
+        let tree_sitter_highlight_names = vec!["comment", "string_literal"];
         Ok(Self {
             current_file: _d(),
             cursor_position: _d(),
@@ -69,6 +75,20 @@ impl Editor {
                 parser
             },
             current_tree_sitter_tree: _d(),
+            current_tree_sitter_highlights: _d(),
+            tree_sitter_highlighter: _d(),
+            tree_sitter_highlight_configuration: {
+                let mut highlight_configuration = HighlightConfiguration::new(
+                    tree_sitter_rust::LANGUAGE.into(),
+                    "rust",
+                    tree_sitter_rust::HIGHLIGHTS_QUERY,
+                    tree_sitter_rust::INJECTIONS_QUERY,
+                    "",
+                )?;
+                highlight_configuration.configure(&tree_sitter_highlight_names);
+                highlight_configuration
+            },
+            tree_sitter_highlight_names,
         })
     }
 }
@@ -136,6 +156,13 @@ impl Editor {
         ))?;
 
         Ok(())
+    }
+
+    fn tree_sitter_highlights(&mut self) -> Result<(), anyhow::Error> {
+        self.current_tree_sitter_highlights = self
+            .tree_sitter_highlighter
+            .highlight(&self.tree_sitter_highlight_configuration)?
+            .collect::<Result<_, _>>()?;
     }
 
     fn cursor_file_line(&self) -> u16 {
@@ -346,4 +373,10 @@ pub struct Position {
 pub struct Size {
     pub height: u16,
     pub width: u16,
+}
+
+pub struct TreeSitterHighlight {
+    pub start_byte: u32,
+    pub end_byte: u32,
+    pub highlight_type_index: usize,
 }

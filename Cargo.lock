@@ -605,6 +605,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "thiserror"
+version = "2.0.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f63587ca0f12b72a0600bcba1d40081f830876000bb46dd2337a3051618f4fc8"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "2.0.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3ff15c8ecd7de3849db632e14d18d2571fa09dfc5ed93479bc4485c7a517c913"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "tokio"
 version = "1.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -658,6 +678,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "tree-sitter-highlight"
+version = "0.26.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb0636662a03005d9289649e0b4a89ff37b75df5033e8d4a16398740ae6496d2"
+dependencies = [
+ "regex",
+ "streaming-iterator",
+ "thiserror",
+ "tree-sitter",
+]
+
+[[package]]
 name = "tree-sitter-language"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -703,6 +735,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tree-sitter",
+ "tree-sitter-highlight",
  "tree-sitter-rust",
 ]
 
