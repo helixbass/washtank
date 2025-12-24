@@ -98,8 +98,8 @@ impl Editor {
 
     fn push_cursor_position(&mut self) -> Result<(), anyhow::Error> {
         self.stdout.execute(cursor::MoveTo(
-            self.cursor_position.row,
             self.cursor_position.column,
+            self.cursor_position.row,
         ))?;
 
         Ok(())
