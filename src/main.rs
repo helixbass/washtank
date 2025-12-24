@@ -8,13 +8,13 @@ use crossterm::{
     execute,
     style::Print,
     terminal::{
-        disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen,
+        disable_raw_mode, enable_raw_mode, size, Clear, ClearType, EnterAlternateScreen,
         LeaveAlternateScreen,
     },
     ExecutableCommand, QueueableCommand,
 };
 use ropey::Rope;
-use squalid::_d;
+use squalid::{EverythingExt, _d};
 use tokio::fs;
 use tokio_stream::StreamExt;
 
@@ -23,7 +23,7 @@ async fn main() -> Result<(), anyhow::Error> {
     enable_raw_mode()?;
     execute!(stdout(), EnterAlternateScreen)?;
 
-    Editor::default().run().await?;
+    Editor::try_new()?.run().await?;
 
     execute!(stdout(), LeaveAlternateScreen)?;
     disable_raw_mode()?;
@@ -39,15 +39,20 @@ pub struct Editor {
     pub current_file: OpenFile,
     pub cursor_position: Position,
     pub stdout: StdoutLock<'static>,
+    pub size: Size,
 }
 
-impl Default for Editor {
-    fn default() -> Self {
-        Self {
+impl Editor {
+    fn try_new() -> Result<Self, anyhow::Error> {
+        Ok(Self {
             current_file: _d(),
             cursor_position: _d(),
             stdout: stdout().lock(),
-        }
+            size: size()?.thrush(|(columns, rows)| Size {
+                height: rows,
+                width: columns,
+            }),
+        })
     }
 }
 
@@ -95,7 +100,8 @@ impl Editor {
         self.stdout.queue(cursor::SavePosition)?;
         self.stdout.queue(cursor::Hide)?;
         self.stdout.queue(cursor::MoveTo(0, 0))?;
-        self.stdout.queue(Print("hello world\r\nsecond line"))?;
+        self.stdout.queue(Print("hello world\r\n"))?;
+        self.stdout.queue(Print("second line"))?;
 
         self.stdout.queue(cursor::RestorePosition)?;
         self.stdout.queue(cursor::Show)?;
@@ -131,4 +137,9 @@ pub struct OpenFileNamed {
 pub struct Position {
     pub row: u16,
     pub column: u16,
+}
+
+pub struct Size {
+    pub height: u16,
+    pub width: u16,
 }
