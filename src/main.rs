@@ -15,6 +15,7 @@ use crossterm::{
     },
     ExecutableCommand, QueueableCommand,
 };
+use ouroboros::self_referencing;
 use ropey::{Rope, RopeSlice};
 use squalid::{EverythingExt, _d};
 use tokio::fs;
@@ -176,17 +177,19 @@ impl Editor {
         let mut captures = query_cursor.captures(
             &self.tree_sitter_highlight_query,
             self.current_tree_sitter_tree.as_ref().unwrap().root_node(),
-            self.current_file.rope(),
+            RopeWrapper(self.current_file.rope()),
         );
         let mut ret: Vec<TreeSitterHighlight> = _d();
         while let Some(capture) = captures.next() {
             ret.push(TreeSitterHighlight {
-                start_byte: capture.captures[0].node.start_byte,
-                end_byte: capture.captures[0].node.end_byte,
-                highlight_type_index: capture.pattern_index,
+                start_byte: capture.0.captures[0].node.start_byte(),
+                end_byte: capture.0.captures[0].node.end_byte(),
+                highlight_type_index: capture.0.pattern_index,
             });
         }
         self.current_tree_sitter_highlights = ret;
+
+        Ok(())
     }
 
     fn cursor_file_line(&self) -> u16 {
@@ -400,7 +403,35 @@ pub struct Size {
 }
 
 pub struct TreeSitterHighlight {
-    pub start_byte: u32,
-    pub end_byte: u32,
+    pub start_byte: usize,
+    pub end_byte: usize,
     pub highlight_type_index: usize,
+}
+
+pub struct RopeWrapper<'a>(&'a Rope);
+
+// TODO: I pulled this from tree-sitter-grep, unify?
+impl<'a> tree_sitter::TextProvider<&'a str> for RopeWrapper<'a> {
+    type I = RopeTextProviderIterator<'a>;
+
+    fn text(&mut self, node: tree_sitter::Node) -> Self::I {
+        let rope_slice = self.0.byte_slice(node.byte_range());
+        RopeTextProviderIterator::new(rope_slice, |rope_slice| rope_slice.chunks())
+    }
+}
+
+#[self_referencing]
+pub struct RopeTextProviderIterator<'a> {
+    rope_slice: RopeSlice<'a>,
+
+    #[borrows(rope_slice)]
+    chunks_iterator: ropey::iter::Chunks<'a>,
+}
+
+impl<'a> Iterator for RopeTextProviderIterator<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.with_chunks_iterator_mut(|chunks_iterator| chunks_iterator.next())
+    }
 }
