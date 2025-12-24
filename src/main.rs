@@ -1,4 +1,5 @@
 use std::cmp;
+use std::fmt::{self, Display};
 use std::io::{stdout, StdoutLock, Write};
 use std::path::PathBuf;
 
@@ -14,7 +15,7 @@ use crossterm::{
     },
     ExecutableCommand, QueueableCommand,
 };
-use ropey::Rope;
+use ropey::{Rope, RopeSlice};
 use squalid::{EverythingExt, _d};
 use tokio::fs;
 use tokio_stream::StreamExt;
@@ -38,6 +39,7 @@ struct Args {
 
 pub struct Editor {
     pub current_file: OpenFile,
+    /// position on-screen, not in terms of file line #
     pub cursor_position: Position,
     pub stdout: StdoutLock<'static>,
     pub size: Size,
@@ -105,14 +107,22 @@ impl Editor {
         Ok(())
     }
 
+    fn cursor_file_line(&self) -> u16 {
+        self.cursor_position.row + self.top_line
+    }
+
     fn maybe_move_cursor_down_one_line(&mut self) -> Result<(), anyhow::Error> {
-        if usize::from(self.cursor_position.row) == self.current_file.rope().len_lines() - 1 {
+        if usize::from(self.cursor_file_line()) == self.current_file.rope().len_lines() - 1 {
             return Ok(());
         }
 
-        self.cursor_position.row += 1;
-
-        self.push_cursor_position()?;
+        if self.cursor_position.row == self.size.height - 1 {
+            self.top_line += 1;
+            self.rerender_screen()?;
+        } else {
+            self.cursor_position.row += 1;
+            self.push_cursor_position()?;
+        }
 
         Ok(())
     }
@@ -131,7 +141,50 @@ impl Editor {
         let last_line_num_to_render =
             cmp::min(num_lines - 1, top_line + usize::from(self.size.height) - 1);
         for line_num in top_line..=last_line_num_to_render {
-            self.stdout.queue(Print(rope.line(line_num)))?;
+            let line_without_trailing_newline = {
+                let line = rope.line(line_num);
+                struct Chunks<'a> {
+                    chunks: ropey::iter::Chunks<'a>,
+                }
+
+                impl<'a> Iterator for Chunks<'a> {
+                    type Item = <ropey::iter::Chunks<'a> as Iterator>::Item;
+
+                    fn next(&mut self) -> Option<Self::Item> {
+                        let next = self.chunks.next()?;
+                        Some(if next.ends_with("\n") {
+                            &next[..next.len() - 1]
+                        } else {
+                            next
+                        })
+                    }
+                }
+
+                struct Wrap<'a> {
+                    rope_slice: RopeSlice<'a>,
+                }
+
+                impl<'a> Wrap<'a> {
+                    pub fn chunks(&self) -> Chunks<'a> {
+                        Chunks {
+                            chunks: self.rope_slice.chunks(),
+                        }
+                    }
+                }
+
+                // copied this from RopeSlice's Display impl
+                impl<'a> Display for Wrap<'a> {
+                    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                        for chunk in self.chunks() {
+                            write!(f, "{}", chunk)?
+                        }
+                        Ok(())
+                    }
+                }
+
+                Wrap { rope_slice: line }
+            };
+            self.stdout.queue(Print(line_without_trailing_newline))?;
             if line_num != last_line_num_to_render {
                 self.stdout.queue(Print("\r\n"))?;
             }
