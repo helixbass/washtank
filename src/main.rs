@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use crossterm::{
     cursor,
-    event::EventStream,
+    event::{Event, EventStream, KeyCode},
     execute,
     style::Print,
     terminal::{
@@ -63,14 +63,22 @@ impl Editor {
     async fn run(&mut self) -> Result<(), anyhow::Error> {
         let args = Args::parse();
 
-        self.set_cursor_position()?;
+        self.push_cursor_position()?;
 
         self.open_file(args.file_name).await?;
 
         let mut event_stream = EventStream::new();
 
-        while let Some(event) = event_stream.next().await {
-            unimplemented!()
+        while let Some(Ok(event)) = event_stream.next().await {
+            match event {
+                Event::Key(key) => match key.code {
+                    KeyCode::Char('j') => {
+                        self.maybe_move_cursor_down_one_line()?;
+                    }
+                    _ => unimplemented!(),
+                },
+                _ => unimplemented!(),
+            }
         }
 
         Ok(())
@@ -85,15 +93,26 @@ impl Editor {
 
         self.rerender_screen()?;
 
-        // unimplemented!();
         Ok(())
     }
 
-    fn set_cursor_position(&mut self) -> Result<(), anyhow::Error> {
+    fn push_cursor_position(&mut self) -> Result<(), anyhow::Error> {
         self.stdout.execute(cursor::MoveTo(
             self.cursor_position.row,
             self.cursor_position.column,
         ))?;
+
+        Ok(())
+    }
+
+    fn maybe_move_cursor_down_one_line(&mut self) -> Result<(), anyhow::Error> {
+        if usize::from(self.cursor_position.row) == self.current_file.rope().len_lines() - 1 {
+            return Ok(());
+        }
+
+        self.cursor_position.row += 1;
+
+        self.push_cursor_position()?;
 
         Ok(())
     }
