@@ -39,7 +39,9 @@ struct Args {
 
 pub struct Editor {
     pub current_file: OpenFile,
-    /// position on-screen, not in terms of file line #
+    /// position on file-contents part of screen "grid",
+    /// not in terms of file line # or actual terminal cursor
+    /// position
     pub cursor_position: Position,
     pub stdout: StdoutLock<'static>,
     pub size: Size,
@@ -121,11 +123,11 @@ impl Editor {
 
         if self.cursor_position.row == self.size.height - 1 {
             self.top_line += 1;
-            self.rerender_screen()?;
         } else {
             self.cursor_position.row += 1;
             self.push_cursor_position()?;
         }
+        self.rerender_screen()?;
 
         Ok(())
     }
@@ -137,11 +139,11 @@ impl Editor {
 
         if self.cursor_position.row == 0 {
             self.top_line -= 1;
-            self.rerender_screen()?;
         } else {
             self.cursor_position.row -= 1;
             self.push_cursor_position()?;
         }
+        self.rerender_screen()?;
 
         Ok(())
     }
@@ -152,16 +154,22 @@ impl Editor {
         self.stdout.queue(cursor::Hide)?;
         self.stdout.queue(cursor::MoveTo(0, 0))?;
 
-        let rope = self.current_file.rope();
-        let num_lines = rope.len_lines();
+        let num_lines = self.current_file.rope().len_lines();
         let top_line = usize::from(self.top_line);
         assert!(top_line <= num_lines - 1);
 
         let last_line_num_to_render =
             cmp::min(num_lines - 1, top_line + usize::from(self.size.height) - 1);
+        let num_relative_line_number_columns = cmp::max(3, num_columns_taken_up(num_lines));
+        let cursor_file_line = usize::from(self.cursor_file_line());
         for line_num in top_line..=last_line_num_to_render {
+            self.print_relative_line_number(
+                cursor_file_line,
+                line_num,
+                num_relative_line_number_columns,
+            )?;
             let line_without_trailing_newline = {
-                let line = rope.line(line_num);
+                let line = self.current_file.rope().line(line_num);
                 struct Chunks<'a> {
                     chunks: ropey::iter::Chunks<'a>,
                 }
@@ -215,6 +223,48 @@ impl Editor {
         self.stdout.flush()?;
 
         Ok(())
+    }
+
+    fn print_relative_line_number(
+        &mut self,
+        cursor_file_line: usize,
+        line_num: usize,
+        num_relative_line_number_columns: usize,
+    ) -> Result<(), anyhow::Error> {
+        if cursor_file_line == line_num {
+            let num_columns_taken_up = num_columns_taken_up(line_num + 1);
+            self.stdout.queue(Print(line_num + 1))?;
+            for _blank_column in 0..num_relative_line_number_columns - num_columns_taken_up {
+                self.stdout.queue(Print(" "))?;
+            }
+        } else {
+            let relative_line_number = usize::try_from(
+                (i32::try_from(cursor_file_line).unwrap() - i32::try_from(line_num).unwrap()).abs(),
+            )
+            .unwrap();
+            let num_columns_taken_up = num_columns_taken_up(relative_line_number);
+            for _blank_column in 0..num_relative_line_number_columns - num_columns_taken_up {
+                self.stdout.queue(Print(" "))?;
+            }
+            self.stdout.queue(Print(relative_line_number))?;
+        };
+        self.stdout.queue(Print(" "))?;
+
+        Ok(())
+    }
+}
+
+fn num_columns_taken_up(num: usize) -> usize {
+    if num >= 10000 {
+        5
+    } else if num >= 1000 {
+        4
+    } else if num >= 100 {
+        3
+    } else if num >= 10 {
+        2
+    } else {
+        1
     }
 }
 
