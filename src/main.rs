@@ -1,11 +1,17 @@
-use std::io::stdout;
+use std::io::{stdout, StdoutLock};
 use std::path::PathBuf;
 
 use clap::Parser;
 use crossterm::{
+    cursor,
     event::EventStream,
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    style::Print,
+    terminal::{
+        disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen,
+        LeaveAlternateScreen,
+    },
+    QueueableCommand,
 };
 use ropey::Rope;
 use squalid::_d;
@@ -15,12 +21,11 @@ use tokio_stream::StreamExt;
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
     enable_raw_mode()?;
-    let mut stdout = stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout(), EnterAlternateScreen)?;
 
     Editor::default().run().await?;
 
-    execute!(stdout, LeaveAlternateScreen)?;
+    execute!(stdout(), LeaveAlternateScreen)?;
     disable_raw_mode()?;
     Ok(())
 }
@@ -30,10 +35,20 @@ struct Args {
     pub file_name: PathBuf,
 }
 
-#[derive(Default)]
 pub struct Editor {
     pub current_file: OpenFile,
     pub cursor_position: Position,
+    pub stdout: StdoutLock<'static>,
+}
+
+impl Default for Editor {
+    fn default() -> Self {
+        Self {
+            current_file: _d(),
+            cursor_position: _d(),
+            stdout: stdout().lock(),
+        }
+    }
 }
 
 impl Editor {
@@ -58,7 +73,22 @@ impl Editor {
             path: file_name,
         });
 
+        self.rerender_screen()?;
+
         // unimplemented!();
+        Ok(())
+    }
+
+    fn rerender_screen(&mut self) -> Result<(), anyhow::Error> {
+        self.stdout.queue(Clear(ClearType::All))?;
+        self.stdout.queue(cursor::SavePosition)?;
+        self.stdout.queue(cursor::Hide)?;
+        self.stdout.queue(cursor::MoveTo(0, 0))?;
+        self.stdout.queue(Print("hello world"))?;
+
+        self.stdout.queue(cursor::RestorePosition)?;
+        self.stdout.queue(cursor::Show)?;
+
         Ok(())
     }
 }
