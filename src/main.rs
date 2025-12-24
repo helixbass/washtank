@@ -56,6 +56,7 @@ pub struct Editor {
     // pub tree_sitter_highlight_configuration: HighlightConfiguration,
     // pub tree_sitter_highlight_names: Vec<&'static str>,
     pub tree_sitter_highlight_query: tree_sitter::Query,
+    pub tree_sitter_highlight_colors: Vec<Color>,
 }
 
 impl Editor {
@@ -100,6 +101,23 @@ impl Editor {
                     (string_literal) @string_literal
                 "#,
             )?,
+            tree_sitter_highlight_colors: vec![
+                Color::Rgb {
+                    r: 47,
+                    g: 47,
+                    b: 255,
+                },
+                Color::Rgb {
+                    r: 47,
+                    g: 47,
+                    b: 255,
+                },
+                Color::Rgb {
+                    r: 240,
+                    g: 240,
+                    b: 0,
+                },
+            ],
         })
     }
 }
@@ -326,11 +344,10 @@ impl Editor {
                                 &chunk[bytes_printed..bytes_printed + num_bytes_to_print],
                             ))?;
                             bytes_printed += num_bytes_to_print;
-                            self.stdout.queue(SetForegroundColor(Color::Rgb {
-                                r: 0,
-                                g: 200,
-                                b: 0,
-                            }))?;
+                            self.stdout.queue(SetForegroundColor(
+                                self.tree_sitter_highlight_colors
+                                    [next_highlight.highlight_type_index],
+                            ))?;
                             last_highlight =
                                 OpenHighlightOrProgress::OpenHighlight(last_highlight_next);
                         }
