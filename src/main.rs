@@ -8,7 +8,7 @@ use crossterm::{
     cursor,
     event::{Event, EventStream, KeyCode},
     execute,
-    style::Print,
+    style::{Color, Print, ResetColor, SetForegroundColor},
     terminal::{
         disable_raw_mode, enable_raw_mode, size, Clear, ClearType, EnterAlternateScreen,
         LeaveAlternateScreen,
@@ -105,7 +105,7 @@ impl Editor {
 
     fn push_cursor_position(&mut self) -> Result<(), anyhow::Error> {
         self.stdout.execute(cursor::MoveTo(
-            self.cursor_position.column,
+            self.cursor_position.column + self.num_relative_line_number_columns() + 1,
             self.cursor_position.row,
         ))?;
 
@@ -148,6 +148,13 @@ impl Editor {
         Ok(())
     }
 
+    fn num_relative_line_number_columns(&self) -> u16 {
+        cmp::max(
+            3,
+            num_columns_taken_up(self.current_file.rope().len_lines()),
+        )
+    }
+
     fn rerender_screen(&mut self) -> Result<(), anyhow::Error> {
         self.stdout.queue(Clear(ClearType::All))?;
         self.stdout.queue(cursor::SavePosition)?;
@@ -160,7 +167,7 @@ impl Editor {
 
         let last_line_num_to_render =
             cmp::min(num_lines - 1, top_line + usize::from(self.size.height) - 1);
-        let num_relative_line_number_columns = cmp::max(3, num_columns_taken_up(num_lines));
+        let num_relative_line_number_columns = self.num_relative_line_number_columns();
         let cursor_file_line = usize::from(self.cursor_file_line());
         for line_num in top_line..=last_line_num_to_render {
             self.print_relative_line_number(
@@ -229,8 +236,13 @@ impl Editor {
         &mut self,
         cursor_file_line: usize,
         line_num: usize,
-        num_relative_line_number_columns: usize,
+        num_relative_line_number_columns: u16,
     ) -> Result<(), anyhow::Error> {
+        self.stdout.queue(SetForegroundColor(Color::Rgb {
+            r: 122,
+            g: 122,
+            b: 122,
+        }))?;
         if cursor_file_line == line_num {
             let num_columns_taken_up = num_columns_taken_up(line_num + 1);
             self.stdout.queue(Print(line_num + 1))?;
@@ -248,13 +260,14 @@ impl Editor {
             }
             self.stdout.queue(Print(relative_line_number))?;
         };
+        self.stdout.queue(ResetColor)?;
         self.stdout.queue(Print(" "))?;
 
         Ok(())
     }
 }
 
-fn num_columns_taken_up(num: usize) -> usize {
+fn num_columns_taken_up(num: usize) -> u16 {
     if num >= 10000 {
         5
     } else if num >= 1000 {
