@@ -77,6 +77,9 @@ impl Editor {
                     KeyCode::Char('j') => {
                         self.maybe_move_cursor_down_one_line()?;
                     }
+                    KeyCode::Char('k') => {
+                        self.maybe_move_cursor_up_one_line()?;
+                    }
                     _ => unimplemented!(),
                 },
                 _ => unimplemented!(),
@@ -121,6 +124,22 @@ impl Editor {
             self.rerender_screen()?;
         } else {
             self.cursor_position.row += 1;
+            self.push_cursor_position()?;
+        }
+
+        Ok(())
+    }
+
+    fn maybe_move_cursor_up_one_line(&mut self) -> Result<(), anyhow::Error> {
+        if self.cursor_file_line() == 0 {
+            return Ok(());
+        }
+
+        if self.cursor_position.row == 0 {
+            self.top_line -= 1;
+            self.rerender_screen()?;
+        } else {
+            self.cursor_position.row -= 1;
             self.push_cursor_position()?;
         }
 
