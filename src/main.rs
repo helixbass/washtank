@@ -1,4 +1,5 @@
 use std::cmp;
+use std::fs::OpenOptions;
 use std::io::{stdout, StdoutLock, Write};
 use std::path::PathBuf;
 
@@ -308,7 +309,7 @@ impl Editor {
                             let open_highlight =
                                 self.current_tree_sitter_highlights[last_highlight_open];
                             let num_bytes_to_print =
-                                open_highlight.end_byte - current_start_byte + bytes_printed;
+                                open_highlight.end_byte - (current_start_byte + bytes_printed);
                             self.stdout.queue(Print(
                                 &chunk[bytes_printed..bytes_printed + num_bytes_to_print],
                             ))?;
@@ -319,7 +320,8 @@ impl Editor {
                         OpenHighlightOrProgress::Next(last_highlight_next) => {
                             let next_highlight =
                                 self.current_tree_sitter_highlights[last_highlight_next];
-                            let num_bytes_to_print = next_highlight.start_byte - current_start_byte;
+                            let num_bytes_to_print =
+                                next_highlight.start_byte - (current_start_byte + bytes_printed);
                             self.stdout.queue(Print(
                                 &chunk[bytes_printed..bytes_printed + num_bytes_to_print],
                             ))?;
@@ -482,4 +484,14 @@ impl<'a> Iterator for RopeTextProviderIterator<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         self.with_chunks_iterator_mut(|chunks_iterator| chunks_iterator.next())
     }
+}
+
+fn log(str: &str) {
+    let mut file = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open("dev.log")
+        .unwrap();
+
+    writeln!(file, "{str}").unwrap();
 }
