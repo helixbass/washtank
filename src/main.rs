@@ -1,3 +1,4 @@
+use std::cmp;
 use std::io::{stdout, StdoutLock, Write};
 use std::path::PathBuf;
 
@@ -40,6 +41,7 @@ pub struct Editor {
     pub cursor_position: Position,
     pub stdout: StdoutLock<'static>,
     pub size: Size,
+    pub top_line: u16,
 }
 
 impl Editor {
@@ -52,6 +54,7 @@ impl Editor {
                 height: rows,
                 width: columns,
             }),
+            top_line: _d(),
         })
     }
 }
@@ -100,8 +103,20 @@ impl Editor {
         self.stdout.queue(cursor::SavePosition)?;
         self.stdout.queue(cursor::Hide)?;
         self.stdout.queue(cursor::MoveTo(0, 0))?;
-        self.stdout.queue(Print("hello world\r\n"))?;
-        self.stdout.queue(Print("second line"))?;
+
+        let rope = self.current_file.rope();
+        let num_lines = rope.len_lines();
+        let top_line = usize::from(self.top_line);
+        assert!(top_line <= num_lines - 1);
+
+        let last_line_num_to_render =
+            cmp::min(num_lines - 1, top_line + usize::from(self.size.height) - 1);
+        for line_num in top_line..=last_line_num_to_render {
+            self.stdout.queue(Print(rope.line(line_num)))?;
+            if line_num != last_line_num_to_render {
+                self.stdout.queue(Print("\r\n"))?;
+            }
+        }
 
         self.stdout.queue(cursor::RestorePosition)?;
         self.stdout.queue(cursor::Show)?;
@@ -115,6 +130,15 @@ impl Editor {
 pub enum OpenFile {
     Anonymous(OpenFileAnonymous),
     Named(OpenFileNamed),
+}
+
+impl OpenFile {
+    pub fn rope(&self) -> &Rope {
+        match self {
+            Self::Anonymous(file) => &file.rope,
+            Self::Named(file) => &file.rope,
+        }
+    }
 }
 
 impl Default for OpenFile {
