@@ -46,6 +46,8 @@ pub struct Editor {
     pub stdout: StdoutLock<'static>,
     pub size: Size,
     pub top_line: u16,
+    pub tree_sitter_parser: tree_sitter::Parser,
+    pub current_tree_sitter_tree: Option<tree_sitter::Tree>,
 }
 
 impl Editor {
@@ -59,6 +61,14 @@ impl Editor {
                 width: columns,
             }),
             top_line: _d(),
+            tree_sitter_parser: {
+                let mut parser = tree_sitter::Parser::new();
+                parser
+                    .set_language(&tree_sitter_rust::LANGUAGE.into())
+                    .unwrap();
+                parser
+            },
+            current_tree_sitter_tree: _d(),
         })
     }
 }
@@ -100,7 +110,23 @@ impl Editor {
 
         self.rerender_screen()?;
 
+        self.current_tree_sitter_tree = Some(self.parse_tree_sitter_from_scratch());
+
         Ok(())
+    }
+
+    fn parse_tree_sitter_from_scratch(&mut self) -> tree_sitter::Tree {
+        self.tree_sitter_parser
+            .parse_with_options(
+                &mut |byte_offset, _| {
+                    let (chunk, chunk_start_byte_index, _, _) =
+                        self.current_file.rope().chunk_at_byte(byte_offset);
+                    &chunk[byte_offset - chunk_start_byte_index..]
+                },
+                None,
+                None,
+            )
+            .unwrap()
     }
 
     fn push_cursor_position(&mut self) -> Result<(), anyhow::Error> {

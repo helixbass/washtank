@@ -11,3 +11,5 @@ ropey = "1.6.1"
 squalid = { git = "https://github.com/helixbass/squalid", rev = "646f6bf" }
 tokio = { version = "1.48.0", features = ["full", "fs"] }
 tokio-stream = "0.1.17"
+tree-sitter = "0.26.3"
+tree-sitter-rust = "0.24.0"
