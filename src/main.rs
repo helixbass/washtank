@@ -676,6 +676,19 @@ impl Editor {
             .splice(range_to_splice, [max_fold.clone()]);
 
         self.compute_printed_lines();
+        let new_cursor_position_row = self
+            .printed_lines
+            .as_ref()
+            .unwrap()
+            .into_iter()
+            .position(|printed_line| {
+                printed_line.start_line(self.folds.as_ref().unwrap())
+                    == self.max_folds.as_ref().unwrap()[fold_index].range.start
+            })
+            .unwrap();
+        self.cursor_position.row = u16::try_from(new_cursor_position_row).unwrap();
+        self.push_cursor_position()?;
+
         self.rerender_screen()?;
         Ok(())
     }
