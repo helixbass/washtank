@@ -15,6 +15,7 @@ use crossterm::{
     },
     ExecutableCommand, QueueableCommand,
 };
+use indoc::indoc;
 use ouroboros::self_referencing;
 use ropey::{Rope, RopeSlice};
 use squalid::{EverythingExt, _d, regex};
@@ -175,7 +176,9 @@ impl Editor {
     }
 
     async fn open_file(&mut self, file_name: PathBuf) -> Result<(), anyhow::Error> {
-        let rope = Rope::from_str(&fs::read_to_string(&file_name).await?);
+        let rope = Rope::from_str(strip_trailing_newline(
+            &fs::read_to_string(&file_name).await?,
+        ));
         self.current_file = OpenFile::Named(OpenFileNamed {
             rope,
             path: file_name,
@@ -203,13 +206,10 @@ impl Editor {
     }
 
     fn set_current_file_indents(&mut self) {
-        self.current_file_indents = Some(
-            self.current_file
-                .rope()
-                .lines()
-                .map(|line| get_indent_level(line, self.current_file_shift_width))
-                .collect(),
-        );
+        self.current_file_indents = Some(calculate_indents(
+            self.current_file.rope(),
+            self.current_file_shift_width,
+        ));
     }
 
     fn apply_initial_folds(&mut self) {
@@ -887,5 +887,49 @@ fn decrement_fold_num_indents(fold: &mut Fold) {
     fold.num_indents -= 1;
     for nested in &mut fold.nested {
         decrement_fold_num_indents(nested);
+    }
+}
+
+fn calculate_indents(rope: &Rope, shift_width: usize) -> Vec<IndentLevel> {
+    rope.lines()
+        .map(|line| get_indent_level(line, shift_width))
+        .collect()
+}
+
+fn strip_trailing_newline(file_contents: &str) -> &str {
+    if file_contents.ends_with("\n") {
+        &file_contents[..file_contents.len() - 1]
+    } else {
+        file_contents
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn calculate_indent_test(text: &str, expected: Vec<IndentLevel>) {
+        assert_eq!(
+            calculate_indents(&Rope::from(strip_trailing_newline(text)), 4),
+            expected
+        );
+    }
+
+    #[test]
+    fn test_calculate_indents() {
+        calculate_indent_test(
+            indoc!(
+                r#"
+                fn foo() {
+                    "foo";
+                }
+            "#
+            ),
+            vec![
+                IndentLevel::Level(0),
+                IndentLevel::Level(1),
+                IndentLevel::Level(0),
+            ],
+        );
     }
 }
