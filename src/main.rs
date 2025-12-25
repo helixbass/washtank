@@ -649,30 +649,31 @@ impl Editor {
                     .take_while(|fold| fold.range.end <= max_fold.range.end)
                     .count()
             });
-        self.folds.as_mut().unwrap().splice(
-            match first_fold_index_to_replace {
-                None => {
-                    let first_after = self
-                        .folds
-                        .as_ref()
-                        .unwrap()
-                        .into_iter()
-                        .position(|fold| fold.range.start >= max_fold.range.end);
-                    match first_after {
-                        Some(first_after) => first_after..first_after,
-                        None => {
-                            let folds = self.folds.as_ref().unwrap();
-                            folds.len()..folds.len()
-                        }
+        let range_to_splice = match first_fold_index_to_replace {
+            None => {
+                let first_after = self
+                    .folds
+                    .as_ref()
+                    .unwrap()
+                    .into_iter()
+                    .position(|fold| fold.range.start >= max_fold.range.end);
+                match first_after {
+                    Some(first_after) => first_after..first_after,
+                    None => {
+                        let folds = self.folds.as_ref().unwrap();
+                        folds.len()..folds.len()
                     }
                 }
-                Some(first_fold_index_to_replace) => {
-                    first_fold_index_to_replace
-                        ..first_fold_index_to_replace + additional_count_to_replace.unwrap() + 1
-                }
-            },
-            max_fold.clone(),
-        );
+            }
+            Some(first_fold_index_to_replace) => {
+                first_fold_index_to_replace
+                    ..first_fold_index_to_replace + additional_count_to_replace.unwrap() + 1
+            }
+        };
+        self.folds
+            .as_mut()
+            .unwrap()
+            .splice(range_to_splice, [max_fold.clone()]);
 
         self.compute_printed_lines();
         self.rerender_screen()?;
