@@ -15,7 +15,6 @@ use crossterm::{
     },
     ExecutableCommand, QueueableCommand,
 };
-use indoc::indoc;
 use ouroboros::self_referencing;
 use ropey::{Rope, RopeSlice};
 use squalid::{EverythingExt, _d, regex};
@@ -902,6 +901,8 @@ fn calculate_folds(indents: &[IndentLevel]) -> Vec<Fold> {
 
 #[cfg(test)]
 mod tests {
+    use indoc::indoc;
+
     use super::*;
 
     fn calculate_indent_test(text: &str, expected: Vec<IndentLevel>) {
@@ -1025,6 +1026,30 @@ mod tests {
                         nested: vec![],
                     },
                 ],
+            }],
+        );
+
+        calculate_folds_test(
+            indoc!(
+                r#"
+                fn foo() {
+                    "foo";
+                    "foo";
+                        "foo";
+                        "foo";
+                    "foo";
+                    "foo";
+                }
+            "#
+            ),
+            vec![Fold {
+                range: Range { start: 1, end: 7 },
+                num_indents: 1,
+                nested: vec![Fold {
+                    range: Range { start: 3, end: 5 },
+                    num_indents: 2,
+                    nested: vec![],
+                }],
             }],
         );
     }
