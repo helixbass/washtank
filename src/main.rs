@@ -63,7 +63,7 @@ pub struct Editor {
     pub folds: Option<Vec<Fold>>,
 }
 
-struct Fold {
+pub struct Fold {
     pub range: Range<usize>,
     pub num_indents: usize,
     pub nested: Vec<Fold>,
