@@ -18,7 +18,6 @@ use crossterm::{
 };
 use ouroboros::self_referencing;
 use ropey::{Rope, RopeSlice};
-use smallvec::{smallvec, SmallVec};
 use squalid::{EverythingExt, _d, regex};
 use tokio::fs;
 use tokio_stream::StreamExt;
@@ -61,15 +60,13 @@ pub struct Editor {
     pub tree_sitter_highlight_colors: Vec<Color>,
     pub current_file_shift_width: usize,
     pub current_file_indents: Option<Vec<usize>>,
-    pub folds: Option<Folds>,
+    pub folds: Option<Vec<Fold>>,
 }
-
-type Folds = SmallVec<[Fold; 10]>;
 
 struct Fold {
     pub range: Range<usize>,
     pub num_indents: usize,
-    pub nested: Folds,
+    pub nested: Vec<Fold>,
 }
 
 impl Editor {
@@ -194,7 +191,7 @@ impl Editor {
     }
 
     fn apply_initial_folds(&mut self) {
-        let mut folds: Folds = _d();
+        let mut folds: Vec<Fold> = _d();
         let mut in_progress: Option<InProgressFold> = _d();
         for (line_num, &indent) in self
             .current_file_indents
@@ -615,14 +612,14 @@ fn get_indent_level(line: RopeSlice, shift_width: usize) -> usize {
 struct InProgressFold {
     pub start_line: usize,
     pub num_indents: usize,
-    pub nested: Folds,
-    pub open_nested: Option<InProgressFold>,
+    pub nested: Vec<Fold>,
+    pub open_nested: Option<Box<InProgressFold>>,
 }
 
 fn to_fold(in_progress: InProgressFold, one_past_line_num: usize) -> Fold {
-    let mut nested: Folds = in_progress.nested;
+    let mut nested = in_progress.nested;
     if let Some(open_nested) = in_progress.open_nested {
-        nested.push(to_fold(open_nested, one_past_line_num));
+        nested.push(to_fold(*open_nested, one_past_line_num));
     }
     Fold {
         range: in_progress.start_line..one_past_line_num,
@@ -639,19 +636,19 @@ fn nest_myself_with_new_lesser_indent(
     InProgressFold {
         start_line: me.start_line,
         num_indents: new_lesser_indent,
-        nested: smallvec![to_fold(me, line_num)],
+        nested: vec![to_fold(me, line_num)],
         open_nested: None,
     }
 }
 
 fn apply_more_indented(indent: usize, line_num: usize, in_progress: &mut InProgressFold) {
     if in_progress.open_nested.is_none() {
-        in_progress.open_nested = Some(InProgressFold {
+        in_progress.open_nested = Some(Box::new(InProgressFold {
             start_line: line_num,
             num_indents: indent,
             nested: _d(),
             open_nested: _d(),
-        });
+        }));
         return;
     }
     if in_progress.open_nested.as_ref().unwrap().num_indents == indent {
@@ -663,10 +660,10 @@ fn apply_more_indented(indent: usize, line_num: usize, in_progress: &mut InProgr
     }
     if in_progress.open_nested.as_ref().unwrap().num_indents > indent {
         let prev_open_nested = in_progress.open_nested.take().unwrap();
-        in_progress.open_nested = Some(nest_myself_with_new_lesser_indent(
-            prev_open_nested,
+        in_progress.open_nested = Some(Box::new(nest_myself_with_new_lesser_indent(
+            *prev_open_nested,
             indent,
             line_num,
-        ));
+        )));
     }
 }
