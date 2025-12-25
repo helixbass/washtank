@@ -138,16 +138,25 @@ impl Editor {
 
         let mut event_stream = EventStream::new();
 
+        let mut in_progress_command: Vec<char> = _d();
+
         while let Some(Ok(event)) = event_stream.next().await {
             match event {
                 Event::Key(key) => match key.code {
                     KeyCode::Char('j') => {
+                        assert!(in_progress_command.is_empty());
                         self.maybe_move_cursor_down_one_line()?;
                     }
                     KeyCode::Char('k') => {
+                        assert!(in_progress_command.is_empty());
                         self.maybe_move_cursor_up_one_line()?;
                     }
                     KeyCode::Char('z') => {
+                        assert!(in_progress_command.is_empty());
+                        in_progress_command.push('z');
+                    }
+                    KeyCode::Char('O') => {
+                        assert!(in_progress_command.len() == 1 && in_progress_command[0] == 'z');
                         self.fully_open_fold_under_cursor()?;
                     }
                     _ => unimplemented!(),
