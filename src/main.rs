@@ -61,6 +61,7 @@ pub struct Editor {
     pub current_file_shift_width: usize,
     pub current_file_indents: Option<Vec<IndentLevel>>,
     pub folds: Option<Vec<Fold>>,
+    pub max_folds: Option<Vec<Fold>>,
 }
 
 impl Editor {
@@ -126,6 +127,7 @@ impl Editor {
             current_file_shift_width: 4,
             current_file_indents: _d(),
             folds: _d(),
+            max_folds: _d(),
         })
     }
 
@@ -163,6 +165,11 @@ impl Editor {
                     KeyCode::Char('o') => {
                         assert!(in_progress_command.len() == 1 && in_progress_command[0] == 'z');
                         self.open_fold_under_cursor_one_level()?;
+                        in_progress_command.clear();
+                    }
+                    KeyCode::Char('C') => {
+                        assert!(in_progress_command.len() == 1 && in_progress_command[0] == 'z');
+                        self.fully_close_fold_under_cursor()?;
                         in_progress_command.clear();
                     }
                     _ => unimplemented!(),
@@ -213,6 +220,7 @@ impl Editor {
 
     fn apply_initial_folds(&mut self) {
         self.folds = Some(calculate_folds(self.current_file_indents.as_ref().unwrap()));
+        self.max_folds = self.folds.clone();
     }
 
     fn parse_tree_sitter_from_scratch(&mut self) -> tree_sitter::Tree {
@@ -612,6 +620,64 @@ impl Editor {
         self.rerender_screen()?;
         Ok(())
     }
+
+    fn fully_close_fold_under_cursor(&mut self) -> Result<(), anyhow::Error> {
+        let start_line = self.printed_lines.as_ref().unwrap()
+            [usize::from(self.cursor_position.row)]
+        .start_line(self.folds.as_ref().unwrap());
+
+        let Some(fold_index) = self
+            .max_folds
+            .as_ref()
+            .unwrap()
+            .into_iter()
+            .position(|fold| fold.range.start <= start_line && fold.range.end > start_line)
+        else {
+            return Ok(());
+        };
+
+        let max_fold = &self.max_folds.as_ref().unwrap()[fold_index];
+
+        let first_fold_index_to_replace =
+            self.folds.as_ref().unwrap().into_iter().position(|fold| {
+                fold.range.start >= max_fold.range.start && fold.range.end <= max_fold.range.end
+            });
+        let additional_count_to_replace =
+            first_fold_index_to_replace.map(|first_fold_index_to_replace| {
+                self.folds.as_ref().unwrap()[first_fold_index_to_replace..]
+                    .into_iter()
+                    .take_while(|fold| fold.range.end <= max_fold.range.end)
+                    .count()
+            });
+        self.folds.as_mut().unwrap().splice(
+            match first_fold_index_to_replace {
+                None => {
+                    let first_after = self
+                        .folds
+                        .as_ref()
+                        .unwrap()
+                        .into_iter()
+                        .position(|fold| fold.range.start >= max_fold.range.end);
+                    match first_after {
+                        Some(first_after) => first_after..first_after,
+                        None => {
+                            let folds = self.folds.as_ref().unwrap();
+                            folds.len()..folds.len()
+                        }
+                    }
+                }
+                Some(first_fold_index_to_replace) => {
+                    first_fold_index_to_replace
+                        ..first_fold_index_to_replace + additional_count_to_replace.unwrap() + 1
+                }
+            },
+            max_fold.clone(),
+        );
+
+        self.compute_printed_lines();
+        self.rerender_screen()?;
+        Ok(())
+    }
 }
 
 fn num_columns_taken_up(num: usize) -> RowOrColumnNumber {
@@ -827,7 +893,7 @@ pub struct Range {
 
 type LineNumber = usize;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Fold {
     pub range: Range,
     pub num_indents: usize,
