@@ -158,6 +158,7 @@ impl Editor {
                     KeyCode::Char('O') => {
                         assert!(in_progress_command.len() == 1 && in_progress_command[0] == 'z');
                         self.fully_open_fold_under_cursor()?;
+                        in_progress_command.clear();
                     }
                     _ => unimplemented!(),
                 },
