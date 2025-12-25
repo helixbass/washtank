@@ -195,11 +195,6 @@ impl Editor {
 
     fn apply_initial_folds(&mut self) {
         let mut folds: Folds = _d();
-        struct InProgressFold {
-            pub start_line: usize,
-            pub num_indents: usize,
-            pub nested: Folds,
-        }
         let mut in_progress: Option<InProgressFold> = _d();
         for (line_num, &indent) in self
             .current_file_indents
@@ -216,15 +211,11 @@ impl Editor {
                     start_line: line_num,
                     num_indents: indent,
                     nested: _d(),
+                    open_nested: _d(),
                 });
             } else {
                 if indent == 0 {
-                    let in_progress = in_progress.take().unwrap();
-                    folds.push(Fold {
-                        range: in_progress.start_line..line_num,
-                        num_indents: in_progress.num_indents,
-                        nested: in_progress.nested,
-                    });
+                    folds.push(to_fold(in_progress.take().unwrap(), line_num));
                     continue;
                 }
                 if indent < in_progress.as_ref().unwrap().num_indents {
@@ -232,12 +223,12 @@ impl Editor {
                     in_progress = Some(InProgressFold {
                         start_line: prev_in_progress.start_line,
                         num_indents: indent,
-                        nested: smallvec![Fold {
-                            range: prev_in_progress.start_line..line_num,
-                            num_indents: prev_in_progress.num_indents,
-                            nested: prev_in_progress.nested,
-                        }],
+                        nested: smallvec![to_fold(prev_in_progress, line_num)],
+                        open_nested: None,
                     });
+                    continue;
+                }
+                if indent == in_progress.as_ref().unwrap().num_indents {
                     continue;
                 }
             }
@@ -613,4 +604,23 @@ fn get_indent_level(line: RopeSlice, shift_width: usize) -> usize {
         }
     }
     spaces_seen_so_far.div_ceil(shift_width)
+}
+
+struct InProgressFold {
+    pub start_line: usize,
+    pub num_indents: usize,
+    pub nested: Folds,
+    pub open_nested: Option<InProgressFold>,
+}
+
+fn to_fold(in_progress: InProgressFold, one_past_line_num: usize) -> Fold {
+    let mut nested: Folds = in_progress.nested;
+    if let Some(open_nested) = in_progress.open_nested {
+        nested.push(to_fold(open_nested, one_past_line_num));
+    }
+    Fold {
+        range: in_progress.start_line..one_past_line_num,
+        num_indents: in_progress.num_indents,
+        nested,
+    }
 }
