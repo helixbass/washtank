@@ -595,11 +595,15 @@ impl Editor {
         };
         if self.folds.as_ref().unwrap()[fold_index].num_indents == 1 {
             let fold = self.folds.as_mut().unwrap().remove(fold_index);
+            let mut nested = fold.nested;
+            for nested in &mut nested {
+                decrement_fold_num_indents(nested);
+            }
             let _ = self
                 .folds
                 .as_mut()
                 .unwrap()
-                .splice(fold_index..fold_index, fold.nested);
+                .splice(fold_index..fold_index, nested);
         } else {
             decrement_fold_num_indents(self.folds.as_mut().unwrap().get_mut(fold_index).unwrap());
         }
