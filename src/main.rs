@@ -979,5 +979,39 @@ mod tests {
                 nested: vec![],
             }],
         );
+
+        calculate_folds_test(
+            indoc!(
+                r#"
+                fn foo() {
+                    "foo";
+
+                    "foo";
+                }
+            "#
+            ),
+            vec![Fold {
+                range: Range { start: 1, end: 4 },
+                num_indents: 1,
+                nested: vec![],
+            }],
+        );
+
+        calculate_folds_test(
+            indoc!(
+                r#"
+                fn foo() {
+                        "foo";
+
+                        "foo";
+                }
+            "#
+            ),
+            vec![Fold {
+                range: Range { start: 1, end: 4 },
+                num_indents: 2,
+                nested: vec![],
+            }],
+        );
     }
 }
