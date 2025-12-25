@@ -26,19 +26,30 @@ impl Editor {
         else {
             return Ok(());
         };
-        if self.folds.as_ref().unwrap()[fold_index].num_indents == 1 {
+        if self.folds.as_ref().unwrap()[fold_index].num_closes == 1 {
             let fold = self.folds.as_mut().unwrap().remove(fold_index);
-            let mut nested = fold.nested;
-            for nested in &mut nested {
-                decrement_fold_num_indents(nested);
-            }
+            let hoisted_nested = fold
+                .nested
+                .into_iter()
+                .map(|nested| Fold {
+                    range: nested.range,
+                    num_closes: nested.additional_num_closes,
+                    full_num_indents: fold.full_num_indents + nested.additional_full_num_indents,
+                    nested: nested.nested,
+                })
+                .collect::<Vec<_>>();
             let _ = self
                 .folds
                 .as_mut()
                 .unwrap()
-                .splice(fold_index..fold_index, nested);
+                .splice(fold_index..fold_index, hoisted_nested);
         } else {
-            decrement_fold_num_indents(self.folds.as_mut().unwrap().get_mut(fold_index).unwrap());
+            self.folds
+                .as_mut()
+                .unwrap()
+                .get_mut(fold_index)
+                .unwrap()
+                .num_closes -= 1;
         }
 
         self.compute_printed_lines();
