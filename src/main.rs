@@ -172,6 +172,11 @@ impl Editor {
                         self.fully_close_fold_under_cursor()?;
                         in_progress_command.clear();
                     }
+                    KeyCode::Char('c') => {
+                        assert!(in_progress_command.len() == 1 && in_progress_command[0] == 'z');
+                        self.close_fold_under_cursor_one_level()?;
+                        in_progress_command.clear();
+                    }
                     _ => unimplemented!(),
                 },
                 _ => unimplemented!(),
@@ -691,6 +696,10 @@ impl Editor {
 
         self.rerender_screen()?;
         Ok(())
+    }
+
+    fn close_fold_under_cursor_one_level(&mut self) -> Result<(), anyhow::Error> {
+        unimplemented!()
     }
 }
 
