@@ -1002,15 +1002,29 @@ mod tests {
                 r#"
                 fn foo() {
                         "foo";
-
+                        "foo";
+                    "foo";
+                    "foo";
+                        "foo";
                         "foo";
                 }
             "#
             ),
             vec![Fold {
-                range: Range { start: 1, end: 4 },
-                num_indents: 2,
-                nested: vec![],
+                range: Range { start: 1, end: 7 },
+                num_indents: 1,
+                nested: vec![
+                    Fold {
+                        range: Range { start: 1, end: 3 },
+                        num_indents: 2,
+                        nested: vec![],
+                    },
+                    Fold {
+                        range: Range { start: 5, end: 7 },
+                        num_indents: 2,
+                        nested: vec![],
+                    },
+                ],
             }],
         );
     }
