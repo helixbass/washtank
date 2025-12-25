@@ -136,7 +136,7 @@ pub fn calculate_folds(indents: &[IndentLevel]) -> Vec<Fold> {
                 IndentLevel::Level(indent) => {
                     in_progress = Some(InProgressFold {
                         start_line: line_num,
-                        num_closes: indent,
+                        num_indents: indent,
                         nested: _d(),
                         open_nested: _d(),
                     });
@@ -150,18 +150,21 @@ pub fn calculate_folds(indents: &[IndentLevel]) -> Vec<Fold> {
             match indent {
                 IndentLevel::BlankLine => {}
                 IndentLevel::Level(indent)
-                    if indent == in_progress.as_ref().unwrap().num_closes =>
+                    if indent == in_progress.as_ref().unwrap().num_indents =>
                 {
                     if in_progress.as_ref().unwrap().open_nested.is_some() {
                         let open_nested = in_progress.as_mut().unwrap().open_nested.take().unwrap();
-                        in_progress
-                            .as_mut()
-                            .unwrap()
-                            .nested
-                            .push(to_fold(*open_nested, line_num));
+                        let parent_num_indents = in_progress.as_ref().unwrap().num_indents;
+                        in_progress.as_mut().unwrap().nested.push(to_nested_fold(
+                            *open_nested,
+                            line_num,
+                            parent_num_indents,
+                        ));
                     }
                 }
-                IndentLevel::Level(indent) if indent < in_progress.as_ref().unwrap().num_closes => {
+                IndentLevel::Level(indent)
+                    if indent < in_progress.as_ref().unwrap().num_indents =>
+                {
                     let prev_in_progress = in_progress.take().unwrap();
                     in_progress = Some(nest_myself_with_new_lesser_indent(
                         prev_in_progress,
@@ -185,8 +188,16 @@ pub fn calculate_folds(indents: &[IndentLevel]) -> Vec<Fold> {
 pub struct Fold {
     pub range: Range,
     pub num_closes: usize,
-    pub num_indents_until_shown: usize,
-    pub nested: Vec<Fold>,
+    pub full_num_indents: usize,
+    pub nested: Vec<NestedFold>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NestedFold {
+    pub range: Range,
+    pub additional_num_closes: usize,
+    pub additional_full_num_indents: usize,
+    pub nested: Vec<NestedFold>,
 }
 
 fn decrement_fold_num_indents(fold: &mut Fold) {
@@ -198,23 +209,53 @@ fn decrement_fold_num_indents(fold: &mut Fold) {
 
 struct InProgressFold {
     pub start_line: usize,
-    pub num_closes: usize,
-    pub nested: Vec<Fold>,
+    pub num_indents: usize,
+    pub nested: Vec<NestedFold>,
     pub open_nested: Option<Box<InProgressFold>>,
 }
 
 fn to_fold(in_progress: InProgressFold, one_past_line_num: usize) -> Fold {
     let mut nested = in_progress.nested;
     if let Some(open_nested) = in_progress.open_nested {
-        nested.push(to_fold(*open_nested, one_past_line_num));
+        nested.push(to_nested_fold(
+            *open_nested,
+            one_past_line_num,
+            in_progress.num_indents,
+        ));
     }
     Fold {
         range: Range {
             start: in_progress.start_line,
             end: one_past_line_num,
         },
-        num_closes: in_progress.num_closes,
-        num_indents_until_shown: 0,
+        num_closes: in_progress.num_indents,
+        full_num_indents: in_progress.num_indents,
+        nested,
+    }
+}
+
+fn to_nested_fold(
+    in_progress: InProgressFold,
+    one_past_line_num: usize,
+    parent_num_indents: usize,
+) -> NestedFold {
+    let mut nested = in_progress.nested;
+    if let Some(open_nested) = in_progress.open_nested {
+        nested.push(to_nested_fold(
+            *open_nested,
+            one_past_line_num,
+            in_progress.num_indents,
+        ));
+    }
+    let additional_num_indents = in_progress.num_indents - parent_num_indents;
+    assert!(additional_num_indents > 0);
+    NestedFold {
+        range: Range {
+            start: in_progress.start_line,
+            end: one_past_line_num,
+        },
+        additional_num_closes: additional_num_indents,
+        additional_full_num_indents: additional_num_indents,
         nested,
     }
 }
@@ -226,8 +267,8 @@ fn nest_myself_with_new_lesser_indent(
 ) -> InProgressFold {
     InProgressFold {
         start_line: me.start_line,
-        num_closes: new_lesser_indent,
-        nested: vec![to_fold(me, line_num)],
+        num_indents: new_lesser_indent,
+        nested: vec![to_nested_fold(me, line_num, new_lesser_indent)],
         open_nested: None,
     }
 }
@@ -236,20 +277,20 @@ fn apply_more_indented(indent: usize, line_num: usize, in_progress: &mut InProgr
     if in_progress.open_nested.is_none() {
         in_progress.open_nested = Some(Box::new(InProgressFold {
             start_line: line_num,
-            num_closes: indent,
+            num_indents: indent,
             nested: _d(),
             open_nested: _d(),
         }));
         return;
     }
-    if in_progress.open_nested.as_ref().unwrap().num_closes == indent {
+    if in_progress.open_nested.as_ref().unwrap().num_indents == indent {
         return;
     }
-    if in_progress.open_nested.as_ref().unwrap().num_closes < indent {
+    if in_progress.open_nested.as_ref().unwrap().num_indents < indent {
         apply_more_indented(indent, line_num, in_progress.open_nested.as_mut().unwrap());
         return;
     }
-    if in_progress.open_nested.as_ref().unwrap().num_closes > indent {
+    if in_progress.open_nested.as_ref().unwrap().num_indents > indent {
         let prev_open_nested = in_progress.open_nested.take().unwrap();
         in_progress.open_nested = Some(Box::new(nest_myself_with_new_lesser_indent(
             *prev_open_nested,
