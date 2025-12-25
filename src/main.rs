@@ -178,6 +178,7 @@ impl Editor {
                 PrintedLine::Line(0)
             },
         );
+        self.compute_printed_lines();
         self.rerender_screen()?;
 
         Ok(())
@@ -297,9 +298,17 @@ impl Editor {
         Ok(())
     }
 
+    fn one_past_final_last_printed_row_line_number(&self) -> usize {
+        let printed_lines = self.printed_lines.as_ref().unwrap();
+        match printed_lines[printed_lines.len() - 1] {
+            PrintedLine::Fold(fold_index) => self.folds.as_ref().unwrap()[fold_index].range.end,
+            PrintedLine::Line(line) => line + 1,
+        }
+    }
+
     fn maybe_move_cursor_down_one_line(&mut self) -> Result<(), anyhow::Error> {
         if self.cursor_position.row == self.size.height - 1 {
-            if self.one_past_final_last_printed_row_line_number.unwrap()
+            if self.one_past_final_last_printed_row_line_number()
                 == self.current_file.rope().len_lines()
             {
                 return Ok(());
@@ -320,6 +329,7 @@ impl Editor {
                     None => PrintedLine::Line(first_line_of_new_top_line),
                 },
             );
+            self.compute_printed_lines();
         } else {
             self.cursor_position.row += 1;
             self.push_cursor_position()?;
@@ -351,6 +361,7 @@ impl Editor {
                     None => PrintedLine::Line(top_line_start_line - 1),
                 },
             );
+            self.compute_printed_lines();
         } else {
             self.cursor_position.row -= 1;
             self.push_cursor_position()?;
@@ -600,7 +611,9 @@ impl Editor {
         Ok(())
     }
 
-    fn fully_open_fold_under_cursor(&mut self) {}
+    fn fully_open_fold_under_cursor(&mut self) {
+        unimplemented!()
+    }
 }
 
 fn num_columns_taken_up(num: usize) -> RowOrColumnNumber {
