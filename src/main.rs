@@ -49,6 +49,7 @@ pub struct Editor {
     pub stdout: StdoutLock<'static>,
     pub size: Size,
     pub top_line: Option<PrintedLine>,
+    pub printed_lines: Option<Vec<PrintedLine>>,
     pub tree_sitter_parser: tree_sitter::Parser,
     pub current_tree_sitter_tree: Option<tree_sitter::Tree>,
     pub current_tree_sitter_highlights: Vec<TreeSitterHighlight>,
@@ -60,7 +61,6 @@ pub struct Editor {
     pub current_file_shift_width: usize,
     pub current_file_indents: Option<Vec<IndentLevel>>,
     pub folds: Option<Vec<Fold>>,
-    pub one_past_final_last_printed_row_line_number: Option<usize>,
 }
 
 impl Editor {
@@ -75,6 +75,7 @@ impl Editor {
                 width: columns,
             }),
             top_line: _d(),
+            printed_lines: _d(),
             tree_sitter_parser: {
                 let mut parser = tree_sitter::Parser::new();
                 parser
@@ -125,7 +126,6 @@ impl Editor {
             current_file_shift_width: 4,
             current_file_indents: _d(),
             folds: _d(),
-            one_past_final_last_printed_row_line_number: _d(),
         })
     }
 
@@ -173,7 +173,7 @@ impl Editor {
                 self.folds.as_ref().unwrap().into_iter().next(),
                 Some(fold) if fold.range.start == 0
             ) {
-                PrintedLine::Fold(self.folds.as_ref().unwrap()[0].range)
+                PrintedLine::Fold(0)
             } else {
                 PrintedLine::Line(0)
             },
@@ -306,7 +306,7 @@ impl Editor {
             }
             let first_line_of_new_top_line = match self.top_line.unwrap() {
                 PrintedLine::Line(line) => line + 1,
-                PrintedLine::Fold(range) => range.end,
+                PrintedLine::Fold(fold_index) => self.folds.as_ref().unwrap()[fold_index].range.end,
             };
             self.top_line = Some(
                 match self
@@ -316,9 +316,7 @@ impl Editor {
                     .into_iter()
                     .position(|fold| fold.range.start == first_line_of_new_top_line)
                 {
-                    Some(fold_index) => {
-                        PrintedLine::Fold(self.folds.as_ref().unwrap()[fold_index].range)
-                    }
+                    Some(fold_index) => PrintedLine::Fold(fold_index),
                     None => PrintedLine::Line(first_line_of_new_top_line),
                 },
             );
@@ -333,7 +331,10 @@ impl Editor {
 
     fn maybe_move_cursor_up_one_line(&mut self) -> Result<(), anyhow::Error> {
         if self.cursor_position.row == 0 {
-            let top_line_start_line = self.top_line.unwrap().start_line();
+            let top_line_start_line = self
+                .top_line
+                .unwrap()
+                .start_line(self.folds.as_ref().unwrap());
             if top_line_start_line == 0 {
                 return Ok(());
             }
@@ -346,9 +347,7 @@ impl Editor {
                     .into_iter()
                     .position(|fold| fold.range.end == top_line_start_line - 1)
                 {
-                    Some(fold_index) => {
-                        PrintedLine::Fold(self.folds.as_ref().unwrap()[fold_index].range)
-                    }
+                    Some(fold_index) => PrintedLine::Fold(fold_index),
                     None => PrintedLine::Line(top_line_start_line - 1),
                 },
             );
@@ -368,6 +367,50 @@ impl Editor {
         )
     }
 
+    fn compute_printed_lines(&mut self) {
+        let num_lines = self.current_file.rope().len_lines();
+        let top_line = self
+            .top_line
+            .unwrap()
+            .start_line(self.folds.as_ref().unwrap());
+        assert!(top_line <= num_lines - 1);
+
+        let mut current_line_num = top_line;
+        let mut next_eligible_fold_index = self
+            .folds
+            .as_ref()
+            .unwrap()
+            .into_iter()
+            .position(|fold| fold.range.start >= top_line);
+        let mut printed_lines: Vec<PrintedLine> = _d();
+        for _ in 0..self.size.height {
+            if current_line_num >= num_lines {
+                break;
+            }
+
+            if let Some(next_eligible_fold_index_yes) =
+                next_eligible_fold_index.filter(|&next_eligible_fold_index| {
+                    self.folds.as_ref().unwrap()[next_eligible_fold_index]
+                        .range
+                        .start
+                        == current_line_num
+                })
+            {
+                printed_lines.push(PrintedLine::Fold(next_eligible_fold_index_yes));
+                current_line_num = self.folds.as_ref().unwrap()[next_eligible_fold_index_yes]
+                    .range
+                    .end;
+                if next_eligible_fold_index_yes < self.folds.as_ref().unwrap().len() - 1 {
+                    next_eligible_fold_index = Some(next_eligible_fold_index_yes + 1);
+                }
+            } else {
+                printed_lines.push(PrintedLine::Line(current_line_num));
+                current_line_num += 1;
+            }
+        }
+        self.printed_lines = Some(printed_lines);
+    }
+
     fn rerender_screen(&mut self) -> Result<(), anyhow::Error> {
         self.stdout.queue(Clear(ClearType::All))?;
         self.stdout.queue(cursor::SavePosition)?;
@@ -375,7 +418,10 @@ impl Editor {
         self.stdout.queue(cursor::MoveTo(0, 0))?;
 
         let num_lines = self.current_file.rope().len_lines();
-        let top_line = self.top_line.unwrap().start_line();
+        let top_line = self
+            .top_line
+            .unwrap()
+            .start_line(self.folds.as_ref().unwrap());
         assert!(top_line <= num_lines - 1);
 
         let num_relative_line_number_columns = self.num_relative_line_number_columns();
@@ -393,133 +439,121 @@ impl Editor {
         }
 
         let mut last_highlight: OpenHighlightOrProgress = _d();
-        let mut current_line_num = top_line;
-        let mut next_eligible_fold_index = self
-            .folds
-            .as_ref()
-            .unwrap()
-            .into_iter()
-            .position(|fold| fold.range.start >= top_line);
-        for printed_row_num in 0..self.size.height {
-            if current_line_num >= num_lines {
-                break;
-            }
-
+        for printed_row_num in 0..self.printed_lines.as_ref().unwrap().len() {
+            let printed_line = self.printed_lines.as_ref().unwrap()[printed_row_num];
+            let printed_row_num = u16::try_from(printed_row_num).unwrap();
+            let current_line_num = match printed_line {
+                PrintedLine::Line(line) => line,
+                PrintedLine::Fold(fold_index) => {
+                    self.folds.as_ref().unwrap()[fold_index].range.start
+                }
+            };
             self.print_relative_line_number(
                 printed_row_num,
                 num_relative_line_number_columns,
                 current_line_num,
             )?;
-            if let Some(next_eligible_fold_index_yes) =
-                next_eligible_fold_index.filter(|&next_eligible_fold_index| {
-                    self.folds.as_ref().unwrap()[next_eligible_fold_index]
-                        .range
-                        .start
-                        == current_line_num
-                })
-            {
-                self.stdout.queue(Print("FOLD"))?;
-                current_line_num = self.folds.as_ref().unwrap()[next_eligible_fold_index_yes]
-                    .range
-                    .end;
-                if next_eligible_fold_index_yes < self.folds.as_ref().unwrap().len() - 1 {
-                    next_eligible_fold_index = Some(next_eligible_fold_index_yes + 1);
+            match printed_line {
+                PrintedLine::Fold(_) => {
+                    self.stdout.queue(Print("FOLD"))?;
                 }
-            } else {
-                let line = self.current_file.rope().line(current_line_num);
+                PrintedLine::Line(_) => {
+                    let line = self.current_file.rope().line(current_line_num);
 
-                let mut current_start_byte =
-                    self.current_file.rope().line_to_byte(current_line_num);
-                for chunk in line.chunks() {
-                    let next_start_byte = current_start_byte + chunk.len();
-                    let mut bytes_printed = 0;
-                    if let OpenHighlightOrProgress::OpenHighlight(index_in_highlights) =
-                        last_highlight
-                    {
-                        let open_highlight =
-                            self.current_tree_sitter_highlights[index_in_highlights];
-                        if open_highlight.end_byte < next_start_byte {
-                            let num_bytes_to_print = open_highlight.end_byte - current_start_byte;
-                            self.stdout.queue(Print(&chunk[..num_bytes_to_print]))?;
-                            bytes_printed += num_bytes_to_print;
-                            self.stdout.queue(ResetColor)?;
-                            last_highlight = OpenHighlightOrProgress::Next(index_in_highlights + 1);
-                        } else {
-                            self.stdout.queue(Print(if chunk.ends_with("\n") {
-                                &chunk[..chunk.len() - 1]
-                            } else {
-                                chunk
-                            }))?;
-                            current_start_byte = next_start_byte;
-                            continue;
-                        }
-                    }
-                    'more_highlights: while !matches!(
-                        last_highlight,
-                        OpenHighlightOrProgress::Next(last_highlight_next) if last_highlight_next >= self.current_tree_sitter_highlights.len()
-                            || self.current_tree_sitter_highlights[last_highlight_next].start_byte >= next_start_byte
-                    ) && !matches!(
-                        last_highlight,
-                        OpenHighlightOrProgress::OpenHighlight(last_highlight_open) if self.current_tree_sitter_highlights[last_highlight_open].end_byte >= next_start_byte
-                    ) {
-                        match last_highlight {
-                            OpenHighlightOrProgress::OpenHighlight(last_highlight_open) => {
-                                let open_highlight =
-                                    self.current_tree_sitter_highlights[last_highlight_open];
+                    let mut current_start_byte =
+                        self.current_file.rope().line_to_byte(current_line_num);
+                    for chunk in line.chunks() {
+                        let next_start_byte = current_start_byte + chunk.len();
+                        let mut bytes_printed = 0;
+                        if let OpenHighlightOrProgress::OpenHighlight(index_in_highlights) =
+                            last_highlight
+                        {
+                            let open_highlight =
+                                self.current_tree_sitter_highlights[index_in_highlights];
+                            if open_highlight.end_byte < next_start_byte {
                                 let num_bytes_to_print =
-                                    open_highlight.end_byte - (current_start_byte + bytes_printed);
-                                self.stdout.queue(Print(
-                                    &chunk[bytes_printed..bytes_printed + num_bytes_to_print],
-                                ))?;
+                                    open_highlight.end_byte - current_start_byte;
+                                self.stdout.queue(Print(&chunk[..num_bytes_to_print]))?;
                                 bytes_printed += num_bytes_to_print;
                                 self.stdout.queue(ResetColor)?;
                                 last_highlight =
-                                    OpenHighlightOrProgress::Next(last_highlight_open + 1);
+                                    OpenHighlightOrProgress::Next(index_in_highlights + 1);
+                            } else {
+                                self.stdout.queue(Print(if chunk.ends_with("\n") {
+                                    &chunk[..chunk.len() - 1]
+                                } else {
+                                    chunk
+                                }))?;
+                                current_start_byte = next_start_byte;
+                                continue;
                             }
-                            OpenHighlightOrProgress::Next(last_highlight_next) => {
-                                let next_highlight =
-                                    self.current_tree_sitter_highlights[last_highlight_next];
-                                while next_highlight.end_byte <= current_start_byte {
+                        }
+                        'more_highlights: while !matches!(
+                            last_highlight,
+                            OpenHighlightOrProgress::Next(last_highlight_next)
+                                if last_highlight_next >= self.current_tree_sitter_highlights.len()
+                                    || self.current_tree_sitter_highlights[last_highlight_next].start_byte >= next_start_byte
+                        ) && !matches!(
+                            last_highlight,
+                            OpenHighlightOrProgress::OpenHighlight(last_highlight_open)
+                                if self.current_tree_sitter_highlights[last_highlight_open].end_byte >= next_start_byte
+                        ) {
+                            match last_highlight {
+                                OpenHighlightOrProgress::OpenHighlight(last_highlight_open) => {
+                                    let open_highlight =
+                                        self.current_tree_sitter_highlights[last_highlight_open];
+                                    let num_bytes_to_print = open_highlight.end_byte
+                                        - (current_start_byte + bytes_printed);
+                                    self.stdout.queue(Print(
+                                        &chunk[bytes_printed..bytes_printed + num_bytes_to_print],
+                                    ))?;
+                                    bytes_printed += num_bytes_to_print;
+                                    self.stdout.queue(ResetColor)?;
                                     last_highlight =
-                                        OpenHighlightOrProgress::Next(last_highlight_next + 1);
-                                    continue 'more_highlights;
+                                        OpenHighlightOrProgress::Next(last_highlight_open + 1);
                                 }
-                                let num_bytes_to_print = next_highlight.start_byte
-                                    - (current_start_byte + bytes_printed);
-                                self.stdout.queue(Print(
-                                    &chunk[bytes_printed..bytes_printed + num_bytes_to_print],
-                                ))?;
-                                bytes_printed += num_bytes_to_print;
-                                self.stdout.queue(SetForegroundColor(
-                                    self.tree_sitter_highlight_colors
-                                        [next_highlight.highlight_type_index],
-                                ))?;
-                                last_highlight =
-                                    OpenHighlightOrProgress::OpenHighlight(last_highlight_next);
+                                OpenHighlightOrProgress::Next(last_highlight_next) => {
+                                    let next_highlight =
+                                        self.current_tree_sitter_highlights[last_highlight_next];
+                                    while next_highlight.end_byte <= current_start_byte {
+                                        last_highlight =
+                                            OpenHighlightOrProgress::Next(last_highlight_next + 1);
+                                        continue 'more_highlights;
+                                    }
+                                    let num_bytes_to_print = next_highlight.start_byte
+                                        - (current_start_byte + bytes_printed);
+                                    self.stdout.queue(Print(
+                                        &chunk[bytes_printed..bytes_printed + num_bytes_to_print],
+                                    ))?;
+                                    bytes_printed += num_bytes_to_print;
+                                    self.stdout.queue(SetForegroundColor(
+                                        self.tree_sitter_highlight_colors
+                                            [next_highlight.highlight_type_index],
+                                    ))?;
+                                    last_highlight =
+                                        OpenHighlightOrProgress::OpenHighlight(last_highlight_next);
+                                }
                             }
                         }
-                    }
-                    if chunk.ends_with("\n") {
-                        if bytes_printed < chunk.len() - 1 {
-                            self.stdout
-                                .queue(Print(&chunk[bytes_printed..chunk.len() - 1]))?;
+                        if chunk.ends_with("\n") {
+                            if bytes_printed < chunk.len() - 1 {
+                                self.stdout
+                                    .queue(Print(&chunk[bytes_printed..chunk.len() - 1]))?;
+                            }
+                        } else {
+                            if bytes_printed < chunk.len() {
+                                self.stdout.queue(Print(&chunk[bytes_printed..]))?;
+                            }
                         }
-                    } else {
-                        if bytes_printed < chunk.len() {
-                            self.stdout.queue(Print(&chunk[bytes_printed..]))?;
-                        }
+                        current_start_byte = next_start_byte;
                     }
-                    current_start_byte = next_start_byte;
                 }
-
-                current_line_num += 1;
             }
 
             if printed_row_num != self.size.height - 1 {
                 self.stdout.queue(Print("\r\n"))?;
             }
         }
-        self.one_past_final_last_printed_row_line_number = Some(current_line_num);
 
         self.stdout.queue(cursor::RestorePosition)?;
         self.stdout.queue(cursor::Show)?;
@@ -565,6 +599,8 @@ impl Editor {
 
         Ok(())
     }
+
+    fn fully_open_fold_under_cursor(&mut self) {}
 }
 
 fn num_columns_taken_up(num: usize) -> RowOrColumnNumber {
@@ -755,17 +791,19 @@ pub enum IndentLevel {
     BlankLine,
 }
 
+type FoldIndex = usize;
+
 #[derive(Copy, Clone)]
 pub enum PrintedLine {
     Line(LineNumber),
-    Fold(Range),
+    Fold(FoldIndex),
 }
 
 impl PrintedLine {
-    pub fn start_line(&self) -> LineNumber {
+    pub fn start_line(&self, folds: &[Fold]) -> LineNumber {
         match self {
             Self::Line(line) => *line,
-            Self::Fold(range) => range.start,
+            Self::Fold(fold_index) => folds[*fold_index].range.start,
         }
     }
 }
