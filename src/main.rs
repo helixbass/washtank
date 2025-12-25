@@ -147,6 +147,9 @@ impl Editor {
                     KeyCode::Char('k') => {
                         self.maybe_move_cursor_up_one_line()?;
                     }
+                    KeyCode::Char('z') => {
+                        self.fully_open_fold_under_cursor()?;
+                    }
                     _ => unimplemented!(),
                 },
                 _ => unimplemented!(),
@@ -611,8 +614,16 @@ impl Editor {
         Ok(())
     }
 
-    fn fully_open_fold_under_cursor(&mut self) {
-        unimplemented!()
+    fn fully_open_fold_under_cursor(&mut self) -> Result<(), anyhow::Error> {
+        let PrintedLine::Fold(fold_index) =
+            self.printed_lines.as_ref().unwrap()[usize::from(self.cursor_position.row)]
+        else {
+            return Ok(());
+        };
+        let _ = self.folds.as_mut().unwrap().remove(fold_index);
+        self.compute_printed_lines();
+        self.rerender_screen()?;
+        Ok(())
     }
 }
 
