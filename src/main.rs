@@ -876,7 +876,17 @@ fn calculate_folds(indents: &[IndentLevel]) -> Vec<Fold> {
             match indent {
                 IndentLevel::BlankLine => {}
                 IndentLevel::Level(indent)
-                    if indent == in_progress.as_ref().unwrap().num_indents => {}
+                    if indent == in_progress.as_ref().unwrap().num_indents =>
+                {
+                    if in_progress.as_ref().unwrap().open_nested.is_some() {
+                        let open_nested = in_progress.as_mut().unwrap().open_nested.take().unwrap();
+                        in_progress
+                            .as_mut()
+                            .unwrap()
+                            .nested
+                            .push(to_fold(*open_nested, line_num));
+                    }
+                }
                 IndentLevel::Level(indent)
                     if indent < in_progress.as_ref().unwrap().num_indents =>
                 {
