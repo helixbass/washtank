@@ -314,7 +314,7 @@ impl Editor {
                         continue;
                     }
                 }
-                while !matches!(
+                'more_highlights: while !matches!(
                     last_highlight,
                     OpenHighlightOrProgress::Next(last_highlight_next) if last_highlight_next >= self.current_tree_sitter_highlights.len()
                         || self.current_tree_sitter_highlights[last_highlight_next].start_byte >= next_start_byte
@@ -338,6 +338,11 @@ impl Editor {
                         OpenHighlightOrProgress::Next(last_highlight_next) => {
                             let next_highlight =
                                 self.current_tree_sitter_highlights[last_highlight_next];
+                            while next_highlight.end_byte <= current_start_byte {
+                                last_highlight =
+                                    OpenHighlightOrProgress::Next(last_highlight_next + 1);
+                                continue 'more_highlights;
+                            }
                             let num_bytes_to_print =
                                 next_highlight.start_byte - (current_start_byte + bytes_printed);
                             self.stdout.queue(Print(
@@ -468,7 +473,7 @@ pub struct Size {
     pub width: u16,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct TreeSitterHighlight {
     pub start_byte: usize,
     pub end_byte: usize,
