@@ -59,7 +59,7 @@ pub struct Editor {
     pub tree_sitter_highlight_query: tree_sitter::Query,
     pub tree_sitter_highlight_colors: Vec<Color>,
     pub current_file_shift_width: usize,
-    pub current_file_indents: Option<Vec<usize>>,
+    pub current_file_indents: Option<Vec<IndentLevel>>,
     pub folds: Option<Vec<Fold>>,
 }
 
@@ -201,33 +201,41 @@ impl Editor {
             .enumerate()
         {
             if in_progress.is_none() {
-                if indent == 0 {
-                    continue;
+                match indent {
+                    IndentLevel::BlankLine => continue,
+                    IndentLevel::Level(level) if level == 0 => continue,
+                    IndentLevel::Level(indent) => {
+                        in_progress = Some(InProgressFold {
+                            start_line: line_num,
+                            num_indents: indent,
+                            nested: _d(),
+                            open_nested: _d(),
+                        });
+                    }
                 }
-                in_progress = Some(InProgressFold {
-                    start_line: line_num,
-                    num_indents: indent,
-                    nested: _d(),
-                    open_nested: _d(),
-                });
             } else {
-                if indent == 0 {
+                if indent == IndentLevel::Level(0) {
                     folds.push(to_fold(in_progress.take().unwrap(), line_num));
                     continue;
                 }
-                if indent < in_progress.as_ref().unwrap().num_indents {
-                    let prev_in_progress = in_progress.take().unwrap();
-                    in_progress = Some(nest_myself_with_new_lesser_indent(
-                        prev_in_progress,
-                        indent,
-                        line_num,
-                    ));
-                    continue;
+                match indent {
+                    IndentLevel::BlankLine => {}
+                    IndentLevel::Level(indent)
+                        if indent == in_progress.as_ref().unwrap().num_indents => {}
+                    IndentLevel::Level(indent)
+                        if indent < in_progress.as_ref().unwrap().num_indents =>
+                    {
+                        let prev_in_progress = in_progress.take().unwrap();
+                        in_progress = Some(nest_myself_with_new_lesser_indent(
+                            prev_in_progress,
+                            indent,
+                            line_num,
+                        ));
+                    }
+                    IndentLevel::Level(indent) => {
+                        apply_more_indented(indent, line_num, in_progress.as_mut().unwrap());
+                    }
                 }
-                if indent == in_progress.as_ref().unwrap().num_indents {
-                    continue;
-                }
-                apply_more_indented(indent, line_num, in_progress.as_mut().unwrap())
             }
         }
         if let Some(in_progress) = in_progress {
@@ -629,7 +637,7 @@ fn log(str: &str) {
     writeln!(file, "{str}").unwrap();
 }
 
-fn get_indent_level(line: RopeSlice, shift_width: usize) -> usize {
+fn get_indent_level(line: RopeSlice, shift_width: usize) -> IndentLevel {
     let mut spaces_seen_so_far = 0;
     for chunk in line.chunks() {
         if let Some(match_) = regex!(r#"^ +"#).find(chunk) {
@@ -637,13 +645,13 @@ fn get_indent_level(line: RopeSlice, shift_width: usize) -> usize {
             if match_.len() == chunk.len() {
                 continue;
             } else {
-                return spaces_seen_so_far.div_ceil(shift_width);
+                return IndentLevel::Level(spaces_seen_so_far.div_ceil(shift_width));
             }
         } else {
-            return spaces_seen_so_far.div_ceil(shift_width);
+            return IndentLevel::Level(spaces_seen_so_far.div_ceil(shift_width));
         }
     }
-    spaces_seen_so_far.div_ceil(shift_width)
+    IndentLevel::BlankLine
 }
 
 struct InProgressFold {
@@ -703,4 +711,10 @@ fn apply_more_indented(indent: usize, line_num: usize, in_progress: &mut InProgr
             line_num,
         )));
     }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum IndentLevel {
+    Level(usize),
+    BlankLine,
 }
