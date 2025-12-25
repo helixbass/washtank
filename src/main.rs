@@ -213,60 +213,7 @@ impl Editor {
     }
 
     fn apply_initial_folds(&mut self) {
-        let mut folds: Vec<Fold> = _d();
-        let mut in_progress: Option<InProgressFold> = _d();
-        for (line_num, &indent) in self
-            .current_file_indents
-            .as_ref()
-            .unwrap()
-            .into_iter()
-            .enumerate()
-        {
-            if in_progress.is_none() {
-                match indent {
-                    IndentLevel::BlankLine => continue,
-                    IndentLevel::Level(level) if level == 0 => continue,
-                    IndentLevel::Level(indent) => {
-                        in_progress = Some(InProgressFold {
-                            start_line: line_num,
-                            num_indents: indent,
-                            nested: _d(),
-                            open_nested: _d(),
-                        });
-                    }
-                }
-            } else {
-                if indent == IndentLevel::Level(0) {
-                    folds.push(to_fold(in_progress.take().unwrap(), line_num));
-                    continue;
-                }
-                match indent {
-                    IndentLevel::BlankLine => {}
-                    IndentLevel::Level(indent)
-                        if indent == in_progress.as_ref().unwrap().num_indents => {}
-                    IndentLevel::Level(indent)
-                        if indent < in_progress.as_ref().unwrap().num_indents =>
-                    {
-                        let prev_in_progress = in_progress.take().unwrap();
-                        in_progress = Some(nest_myself_with_new_lesser_indent(
-                            prev_in_progress,
-                            indent,
-                            line_num,
-                        ));
-                    }
-                    IndentLevel::Level(indent) => {
-                        apply_more_indented(indent, line_num, in_progress.as_mut().unwrap());
-                    }
-                }
-            }
-        }
-        if let Some(in_progress) = in_progress {
-            folds.push(to_fold(
-                in_progress,
-                self.current_file_indents.as_ref().unwrap().len(),
-            ));
-        }
-        self.folds = Some(folds);
+        self.folds = Some(calculate_folds(self.current_file_indents.as_ref().unwrap()));
     }
 
     fn parse_tree_sitter_from_scratch(&mut self) -> tree_sitter::Tree {
@@ -869,7 +816,7 @@ impl PrintedLine {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Range {
     pub start: LineNumber,
     pub end: LineNumber,
@@ -877,6 +824,7 @@ pub struct Range {
 
 type LineNumber = usize;
 
+#[derive(Debug, PartialEq, Eq)]
 pub struct Fold {
     pub range: Range,
     pub num_indents: usize,
@@ -902,6 +850,54 @@ fn strip_trailing_newline(file_contents: &str) -> &str {
     } else {
         file_contents
     }
+}
+
+fn calculate_folds(indents: &[IndentLevel]) -> Vec<Fold> {
+    let mut folds: Vec<Fold> = _d();
+    let mut in_progress: Option<InProgressFold> = _d();
+    for (line_num, &indent) in indents.into_iter().enumerate() {
+        if in_progress.is_none() {
+            match indent {
+                IndentLevel::BlankLine => continue,
+                IndentLevel::Level(level) if level == 0 => continue,
+                IndentLevel::Level(indent) => {
+                    in_progress = Some(InProgressFold {
+                        start_line: line_num,
+                        num_indents: indent,
+                        nested: _d(),
+                        open_nested: _d(),
+                    });
+                }
+            }
+        } else {
+            if indent == IndentLevel::Level(0) {
+                folds.push(to_fold(in_progress.take().unwrap(), line_num));
+                continue;
+            }
+            match indent {
+                IndentLevel::BlankLine => {}
+                IndentLevel::Level(indent)
+                    if indent == in_progress.as_ref().unwrap().num_indents => {}
+                IndentLevel::Level(indent)
+                    if indent < in_progress.as_ref().unwrap().num_indents =>
+                {
+                    let prev_in_progress = in_progress.take().unwrap();
+                    in_progress = Some(nest_myself_with_new_lesser_indent(
+                        prev_in_progress,
+                        indent,
+                        line_num,
+                    ));
+                }
+                IndentLevel::Level(indent) => {
+                    apply_more_indented(indent, line_num, in_progress.as_mut().unwrap());
+                }
+            }
+        }
+    }
+    if let Some(in_progress) = in_progress {
+        folds.push(to_fold(in_progress, indents.len()));
+    }
+    folds
 }
 
 #[cfg(test)]
@@ -930,6 +926,58 @@ mod tests {
                 IndentLevel::Level(1),
                 IndentLevel::Level(0),
             ],
+        );
+
+        calculate_indent_test(
+            indoc!(
+                r#"
+                fn foo() {
+                    "foo";
+                }
+
+                trait Foo {
+                    fn whee() -> Whee;
+                }
+            "#
+            ),
+            vec![
+                IndentLevel::Level(0),
+                IndentLevel::Level(1),
+                IndentLevel::Level(0),
+                IndentLevel::BlankLine,
+                IndentLevel::Level(0),
+                IndentLevel::Level(1),
+                IndentLevel::Level(0),
+            ],
+        );
+    }
+
+    fn calculate_folds_test(text: &str, expected: Vec<Fold>) {
+        assert_eq!(
+            calculate_folds(&calculate_indents(
+                &Rope::from(strip_trailing_newline(text)),
+                4
+            )),
+            expected
+        );
+    }
+
+    #[test]
+    fn test_calculate_folds() {
+        calculate_folds_test(
+            indoc!(
+                r#"
+                fn foo() {
+                    "foo";
+                    "foo";
+                }
+            "#
+            ),
+            vec![Fold {
+                range: Range { start: 1, end: 3 },
+                num_indents: 1,
+                nested: vec![],
+            }],
         );
     }
 }
