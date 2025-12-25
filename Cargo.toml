@@ -8,6 +8,7 @@ anyhow = "1.0.100"
 clap = { version = "4.5.53", features = ["derive"] }
 crossterm = { version = "0.29.0", features = ["event-stream"] }
 ouroboros = "0.18.5"
+regex = "1.12.2"
 ropey = "1.6.1"
 smallvec = "1.15.1"
 squalid = { git = "https://github.com/helixbass/squalid", rev = "646f6bf" }

@@ -1,4 +1,5 @@
 use std::cmp;
+use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::{stdout, StdoutLock, Write};
 use std::path::PathBuf;
@@ -17,7 +18,7 @@ use crossterm::{
 };
 use ouroboros::self_referencing;
 use ropey::{Rope, RopeSlice};
-use squalid::{EverythingExt, _d};
+use squalid::{EverythingExt, _d, regex};
 use tokio::fs;
 use tokio_stream::StreamExt;
 // use tree_sitter_highlight::{HighlightConfiguration, Highlighter};
@@ -57,6 +58,8 @@ pub struct Editor {
     // pub tree_sitter_highlight_names: Vec<&'static str>,
     pub tree_sitter_highlight_query: tree_sitter::Query,
     pub tree_sitter_highlight_colors: Vec<Color>,
+    pub current_file_shift_width: usize,
+    pub current_file_indents: Option<HashMap<usize, usize>>,
 }
 
 impl Editor {
@@ -118,11 +121,11 @@ impl Editor {
                     b: 0,
                 },
             ],
+            current_file_shift_width: 4,
+            current_file_indents: _d(),
         })
     }
-}
 
-impl Editor {
     async fn run(&mut self) -> Result<(), anyhow::Error> {
         let args = Args::parse();
 
@@ -161,9 +164,32 @@ impl Editor {
 
         self.current_tree_sitter_tree = Some(self.parse_tree_sitter_from_scratch());
         self.calculate_tree_sitter_highlights()?;
+
+        self.set_current_file_indents();
+        self.apply_initial_folds();
         self.rerender_screen()?;
 
         Ok(())
+    }
+
+    fn set_current_file_indents(&mut self) {
+        self.current_file_indents = Some(
+            self.current_file
+                .rope()
+                .lines()
+                .enumerate()
+                .map(|(line_num, line)| {
+                    (
+                        line_num,
+                        get_indent_level(line, self.current_file_shift_width),
+                    )
+                })
+                .collect(),
+        );
+    }
+
+    fn apply_initial_folds(&mut self) {
+        unimplemented!()
     }
 
     fn parse_tree_sitter_from_scratch(&mut self) -> tree_sitter::Tree {
@@ -508,6 +534,7 @@ impl<'a> Iterator for RopeTextProviderIterator<'a> {
     }
 }
 
+#[allow(dead_code)]
 fn log(str: &str) {
     let mut file = OpenOptions::new()
         .append(true)
@@ -516,4 +543,21 @@ fn log(str: &str) {
         .unwrap();
 
     writeln!(file, "{str}").unwrap();
+}
+
+fn get_indent_level(line: RopeSlice, shift_width: usize) -> usize {
+    let mut spaces_seen_so_far = 0;
+    for chunk in line.chunks() {
+        if let Some(match_) = regex!(r#"^ +"#).find(chunk) {
+            spaces_seen_so_far += match_.len();
+            if match_.len() == chunk.len() {
+                continue;
+            } else {
+                return spaces_seen_so_far.div_ceil(shift_width);
+            }
+        } else {
+            return spaces_seen_so_far.div_ceil(shift_width);
+        }
+    }
+    spaces_seen_so_far.div_ceil(shift_width)
 }

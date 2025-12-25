@@ -792,6 +792,7 @@ dependencies = [
  "clap",
  "crossterm",
  "ouroboros",
+ "regex",
  "ropey",
  "smallvec",
  "squalid",
