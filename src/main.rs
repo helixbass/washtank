@@ -233,6 +233,12 @@ impl Editor {
                 apply_more_indented(indent, line_num, in_progress.as_mut().unwrap())
             }
         }
+        if let Some(in_progress) = in_progress {
+            folds.push(to_fold(
+                in_progress,
+                self.current_file_indents.as_ref().unwrap().len(),
+            ));
+        }
         self.folds = Some(folds);
     }
 
