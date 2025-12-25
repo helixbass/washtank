@@ -1,7 +1,6 @@
 use std::cmp;
 use std::fs::OpenOptions;
 use std::io::{stdout, StdoutLock, Write};
-use std::ops::Range;
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -49,7 +48,7 @@ pub struct Editor {
     pub cursor_position: Position,
     pub stdout: StdoutLock<'static>,
     pub size: Size,
-    pub top_line: u16,
+    pub top_line: Option<PrintedLine>,
     pub tree_sitter_parser: tree_sitter::Parser,
     pub current_tree_sitter_tree: Option<tree_sitter::Tree>,
     pub current_tree_sitter_highlights: Vec<TreeSitterHighlight>,
@@ -61,12 +60,13 @@ pub struct Editor {
     pub current_file_shift_width: usize,
     pub current_file_indents: Option<Vec<IndentLevel>>,
     pub folds: Option<Vec<Fold>>,
+    pub one_past_final_last_printed_row_line_number: Option<usize>,
 }
 
 type LineNumber = usize;
 
 pub struct Fold {
-    pub range: Range<LineNumber>,
+    pub range: Range,
     pub num_indents: usize,
     pub nested: Vec<Fold>,
 }
@@ -133,6 +133,7 @@ impl Editor {
             current_file_shift_width: 4,
             current_file_indents: _d(),
             folds: _d(),
+            one_past_final_last_printed_row_line_number: _d(),
         })
     }
 
@@ -294,18 +295,31 @@ impl Editor {
         Ok(())
     }
 
-    // TODO: I think this is an anti-pattern because of folds
-    fn cursor_file_line(&self) -> u16 {
-        self.cursor_position.row + self.top_line
-    }
-
     fn maybe_move_cursor_down_one_line(&mut self) -> Result<(), anyhow::Error> {
-        if usize::from(self.cursor_file_line()) == self.current_file.rope().len_lines() - 1 {
-            return Ok(());
-        }
-
         if self.cursor_position.row == self.size.height - 1 {
-            self.top_line += 1;
+            if self.one_past_final_last_printed_row_line_number.unwrap()
+                == self.current_file.rope().len_lines()
+            {
+                return Ok(());
+            }
+            let first_line_of_new_top_line = match self.top_line.unwrap() {
+                PrintedLine::Line(line) => line + 1,
+                PrintedLine::Fold(range) => range.end,
+            };
+            self.top_line = Some(
+                match self
+                    .folds
+                    .as_ref()
+                    .unwrap()
+                    .into_iter()
+                    .position(|fold| fold.range.start == first_line_of_new_top_line)
+                {
+                    Some(fold_index) => {
+                        PrintedLine::Fold(self.folds.as_ref().unwrap()[fold_index].range)
+                    }
+                    None => PrintedLine::Line(first_line_of_new_top_line),
+                },
+            );
         } else {
             self.cursor_position.row += 1;
             self.push_cursor_position()?;
@@ -316,12 +330,26 @@ impl Editor {
     }
 
     fn maybe_move_cursor_up_one_line(&mut self) -> Result<(), anyhow::Error> {
-        if self.cursor_file_line() == 0 {
-            return Ok(());
-        }
-
         if self.cursor_position.row == 0 {
-            self.top_line -= 1;
+            let top_line_start_line = self.top_line.unwrap().start_line();
+            if top_line_start_line == 0 {
+                return Ok(());
+            }
+
+            self.top_line = Some(
+                match self
+                    .folds
+                    .as_ref()
+                    .unwrap()
+                    .into_iter()
+                    .position(|fold| fold.range.end == top_line_start_line - 1)
+                {
+                    Some(fold_index) => {
+                        PrintedLine::Fold(self.folds.as_ref().unwrap()[fold_index].range)
+                    }
+                    None => PrintedLine::Line(top_line_start_line - 1),
+                },
+            );
         } else {
             self.cursor_position.row -= 1;
             self.push_cursor_position()?;
@@ -331,7 +359,7 @@ impl Editor {
         Ok(())
     }
 
-    fn num_relative_line_number_columns(&self) -> u16 {
+    fn num_relative_line_number_columns(&self) -> RowOrColumnNumber {
         cmp::max(
             3,
             num_columns_taken_up(self.current_file.rope().len_lines()),
@@ -345,7 +373,7 @@ impl Editor {
         self.stdout.queue(cursor::MoveTo(0, 0))?;
 
         let num_lines = self.current_file.rope().len_lines();
-        let top_line = usize::from(self.top_line);
+        let top_line = self.top_line.unwrap().start_line();
         assert!(top_line <= num_lines - 1);
 
         let num_relative_line_number_columns = self.num_relative_line_number_columns();
@@ -489,6 +517,7 @@ impl Editor {
                 self.stdout.queue(Print("\r\n"))?;
             }
         }
+        self.one_past_final_last_printed_row_line_number = Some(current_line_num);
 
         self.stdout.queue(cursor::RestorePosition)?;
         self.stdout.queue(cursor::Show)?;
@@ -500,9 +529,9 @@ impl Editor {
 
     fn print_relative_line_number(
         &mut self,
-        printed_row_num: u16,
-        num_relative_line_number_columns: u16,
-        line_number_to_show_if_cursor_line: usize,
+        printed_row_num: RowOrColumnNumber,
+        num_relative_line_number_columns: RowOrColumnNumber,
+        line_number_to_show_if_cursor_line: LineNumber,
     ) -> Result<(), anyhow::Error> {
         self.stdout.queue(SetForegroundColor(Color::Rgb {
             r: 122,
@@ -536,7 +565,7 @@ impl Editor {
     }
 }
 
-fn num_columns_taken_up(num: usize) -> u16 {
+fn num_columns_taken_up(num: usize) -> RowOrColumnNumber {
     if num >= 10000 {
         5
     } else if num >= 1000 {
@@ -580,15 +609,17 @@ pub struct OpenFileNamed {
     pub path: PathBuf,
 }
 
+type RowOrColumnNumber = u16;
+
 #[derive(Default)]
 pub struct Position {
-    pub row: u16,
-    pub column: u16,
+    pub row: RowOrColumnNumber,
+    pub column: RowOrColumnNumber,
 }
 
 pub struct Size {
-    pub height: u16,
-    pub width: u16,
+    pub height: RowOrColumnNumber,
+    pub width: RowOrColumnNumber,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -667,7 +698,10 @@ fn to_fold(in_progress: InProgressFold, one_past_line_num: usize) -> Fold {
         nested.push(to_fold(*open_nested, one_past_line_num));
     }
     Fold {
-        range: in_progress.start_line..one_past_line_num,
+        range: Range {
+            start: in_progress.start_line,
+            end: one_past_line_num,
+        },
         num_indents: in_progress.num_indents,
         nested,
     }
@@ -717,4 +751,25 @@ fn apply_more_indented(indent: usize, line_num: usize, in_progress: &mut InProgr
 pub enum IndentLevel {
     Level(usize),
     BlankLine,
+}
+
+#[derive(Copy, Clone)]
+pub enum PrintedLine {
+    Line(LineNumber),
+    Fold(Range),
+}
+
+impl PrintedLine {
+    pub fn start_line(&self) -> LineNumber {
+        match self {
+            Self::Line(line) => *line,
+            Self::Fold(range) => range.start,
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub struct Range {
+    pub start: LineNumber,
+    pub end: LineNumber,
 }
