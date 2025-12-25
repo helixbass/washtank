@@ -160,6 +160,11 @@ impl Editor {
                         self.fully_open_fold_under_cursor()?;
                         in_progress_command.clear();
                     }
+                    KeyCode::Char('o') => {
+                        assert!(in_progress_command.len() == 1 && in_progress_command[0] == 'z');
+                        self.open_fold_under_cursor_one_level()?;
+                        in_progress_command.clear();
+                    }
                     _ => unimplemented!(),
                 },
                 _ => unimplemented!(),
@@ -635,6 +640,28 @@ impl Editor {
         self.rerender_screen()?;
         Ok(())
     }
+
+    fn open_fold_under_cursor_one_level(&mut self) -> Result<(), anyhow::Error> {
+        let PrintedLine::Fold(fold_index) =
+            self.printed_lines.as_ref().unwrap()[usize::from(self.cursor_position.row)]
+        else {
+            return Ok(());
+        };
+        if self.folds.as_ref().unwrap()[fold_index].num_indents == 1 {
+            let fold = self.folds.as_mut().unwrap().remove(fold_index);
+            let _ = self
+                .folds
+                .as_mut()
+                .unwrap()
+                .splice(fold_index..fold_index, fold.nested);
+        } else {
+            decrement_fold_num_indents(self.folds.as_mut().unwrap().get_mut(fold_index).unwrap());
+        }
+
+        self.compute_printed_lines();
+        self.rerender_screen()?;
+        Ok(())
+    }
 }
 
 fn num_columns_taken_up(num: usize) -> RowOrColumnNumber {
@@ -854,4 +881,11 @@ pub struct Fold {
     pub range: Range,
     pub num_indents: usize,
     pub nested: Vec<Fold>,
+}
+
+fn decrement_fold_num_indents(fold: &mut Fold) {
+    fold.num_indents -= 1;
+    for nested in &mut fold.nested {
+        decrement_fold_num_indents(nested);
+    }
 }
