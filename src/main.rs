@@ -2,6 +2,7 @@ use std::cmp;
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::{stdout, StdoutLock, Write};
+use std::ops::Range;
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -18,6 +19,7 @@ use crossterm::{
 };
 use ouroboros::self_referencing;
 use ropey::{Rope, RopeSlice};
+use smallvec::SmallVec;
 use squalid::{EverythingExt, _d, regex};
 use tokio::fs;
 use tokio_stream::StreamExt;
@@ -59,7 +61,16 @@ pub struct Editor {
     pub tree_sitter_highlight_query: tree_sitter::Query,
     pub tree_sitter_highlight_colors: Vec<Color>,
     pub current_file_shift_width: usize,
-    pub current_file_indents: Option<HashMap<usize, usize>>,
+    pub current_file_indents: Option<Vec<usize>>,
+    pub folds: Option<Folds>,
+}
+
+type Folds = SmallVec<[Fold; 10]>;
+
+struct Fold {
+    pub range: Range<usize>,
+    pub num_indents: usize,
+    pub nested: Folds,
 }
 
 impl Editor {
@@ -123,6 +134,7 @@ impl Editor {
             ],
             current_file_shift_width: 4,
             current_file_indents: _d(),
+            folds: _d(),
         })
     }
 
@@ -177,19 +189,49 @@ impl Editor {
             self.current_file
                 .rope()
                 .lines()
-                .enumerate()
-                .map(|(line_num, line)| {
-                    (
-                        line_num,
-                        get_indent_level(line, self.current_file_shift_width),
-                    )
-                })
+                .map(|line| get_indent_level(line, self.current_file_shift_width))
                 .collect(),
         );
     }
 
     fn apply_initial_folds(&mut self) {
-        unimplemented!()
+        let mut folds: Folds = _d();
+        struct InProgressFold {
+            pub start_line: usize,
+            pub num_indents: usize,
+            pub nested: Folds,
+        }
+        let mut in_progress: Option<InProgressFold> = _d();
+        for (line_num, &indent) in self
+            .current_file_indents
+            .as_ref()
+            .unwrap()
+            .into_iter()
+            .enumerate()
+        {
+            if in_progress.is_none() {
+                if indent == 0 {
+                    continue;
+                }
+                in_progress = Some(InProgressFold {
+                    start_line: line_num,
+                    num_indents: indent,
+                    nested: _d(),
+                });
+            } else {
+                if indent == 0 {
+                    let in_progress = in_progress.take().unwrap();
+                    folds.push(Fold {
+                        range: in_progress.start_line..line_num,
+                        num_indents: in_progress.num_indents,
+                        nested: in_progress.nested,
+                    });
+                    continue;
+                }
+                unimplemented!()
+            }
+        }
+        self.folds = Some(folds);
     }
 
     fn parse_tree_sitter_from_scratch(&mut self) -> tree_sitter::Tree {
