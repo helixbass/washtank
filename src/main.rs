@@ -640,7 +640,7 @@ fn log(str: &str) {
 fn get_indent_level(line: RopeSlice, shift_width: usize) -> IndentLevel {
     let mut spaces_seen_so_far = 0;
     for chunk in line.chunks() {
-        if let Some(match_) = regex!(r#"^ +"#).find(chunk) {
+        if let Some(match_) = regex!(r#"^[ \n]+"#).find(chunk) {
             spaces_seen_so_far += match_.len();
             if match_.len() == chunk.len() {
                 continue;
