@@ -63,14 +63,6 @@ pub struct Editor {
     pub one_past_final_last_printed_row_line_number: Option<usize>,
 }
 
-type LineNumber = usize;
-
-pub struct Fold {
-    pub range: Range,
-    pub num_indents: usize,
-    pub nested: Vec<Fold>,
-}
-
 impl Editor {
     fn try_new() -> Result<Self, anyhow::Error> {
         // let tree_sitter_highlight_names = vec!["comment", "string_literal"];
@@ -176,6 +168,16 @@ impl Editor {
 
         self.set_current_file_indents();
         self.apply_initial_folds();
+        self.top_line = Some(
+            if matches!(
+                self.folds.as_ref().unwrap().into_iter().next(),
+                Some(fold) if fold.range.start == 0
+            ) {
+                PrintedLine::Fold(self.folds.as_ref().unwrap()[0].range)
+            } else {
+                PrintedLine::Line(0)
+            },
+        );
         self.rerender_screen()?;
 
         Ok(())
@@ -772,4 +774,12 @@ impl PrintedLine {
 pub struct Range {
     pub start: LineNumber,
     pub end: LineNumber,
+}
+
+type LineNumber = usize;
+
+pub struct Fold {
+    pub range: Range,
+    pub num_indents: usize,
+    pub nested: Vec<Fold>,
 }
