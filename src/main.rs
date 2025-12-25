@@ -170,8 +170,6 @@ impl Editor {
             path: file_name,
         });
 
-        self.rerender_screen()?;
-
         self.current_tree_sitter_tree = Some(self.parse_tree_sitter_from_scratch());
         self.calculate_tree_sitter_highlights()?;
 
