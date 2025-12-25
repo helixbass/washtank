@@ -1,5 +1,4 @@
 use std::cmp;
-use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::{stdout, StdoutLock, Write};
 use std::ops::Range;
@@ -19,7 +18,7 @@ use crossterm::{
 };
 use ouroboros::self_referencing;
 use ropey::{Rope, RopeSlice};
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 use squalid::{EverythingExt, _d, regex};
 use tokio::fs;
 use tokio_stream::StreamExt;
@@ -228,7 +227,19 @@ impl Editor {
                     });
                     continue;
                 }
-                unimplemented!()
+                if indent < in_progress.as_ref().unwrap().num_indents {
+                    let prev_in_progress = in_progress.take().unwrap();
+                    in_progress = Some(InProgressFold {
+                        start_line: prev_in_progress.start_line,
+                        num_indents: indent,
+                        nested: smallvec![Fold {
+                            range: prev_in_progress.start_line..line_num,
+                            num_indents: prev_in_progress.num_indents,
+                            nested: prev_in_progress.nested,
+                        }],
+                    });
+                    continue;
+                }
             }
         }
         self.folds = Some(folds);
