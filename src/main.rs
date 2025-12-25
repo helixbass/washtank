@@ -220,17 +220,17 @@ impl Editor {
                 }
                 if indent < in_progress.as_ref().unwrap().num_indents {
                     let prev_in_progress = in_progress.take().unwrap();
-                    in_progress = Some(InProgressFold {
-                        start_line: prev_in_progress.start_line,
-                        num_indents: indent,
-                        nested: smallvec![to_fold(prev_in_progress, line_num)],
-                        open_nested: None,
-                    });
+                    in_progress = Some(nest_myself_with_new_lesser_indent(
+                        prev_in_progress,
+                        indent,
+                        line_num,
+                    ));
                     continue;
                 }
                 if indent == in_progress.as_ref().unwrap().num_indents {
                     continue;
                 }
+                apply_more_indented(indent, line_num, in_progress.as_mut().unwrap())
             }
         }
         self.folds = Some(folds);
@@ -622,5 +622,45 @@ fn to_fold(in_progress: InProgressFold, one_past_line_num: usize) -> Fold {
         range: in_progress.start_line..one_past_line_num,
         num_indents: in_progress.num_indents,
         nested,
+    }
+}
+
+fn nest_myself_with_new_lesser_indent(
+    me: InProgressFold,
+    new_lesser_indent: usize,
+    line_num: usize,
+) -> InProgressFold {
+    InProgressFold {
+        start_line: me.start_line,
+        num_indents: new_lesser_indent,
+        nested: smallvec![to_fold(me, line_num)],
+        open_nested: None,
+    }
+}
+
+fn apply_more_indented(indent: usize, line_num: usize, in_progress: &mut InProgressFold) {
+    if in_progress.open_nested.is_none() {
+        in_progress.open_nested = Some(InProgressFold {
+            start_line: line_num,
+            num_indents: indent,
+            nested: _d(),
+            open_nested: _d(),
+        });
+        return;
+    }
+    if in_progress.open_nested.as_ref().unwrap().num_indents == indent {
+        return;
+    }
+    if in_progress.open_nested.as_ref().unwrap().num_indents < indent {
+        apply_more_indented(indent, line_num, in_progress.open_nested.as_mut().unwrap());
+        return;
+    }
+    if in_progress.open_nested.as_ref().unwrap().num_indents > indent {
+        let prev_open_nested = in_progress.open_nested.take().unwrap();
+        in_progress.open_nested = Some(nest_myself_with_new_lesser_indent(
+            prev_open_nested,
+            indent,
+            line_num,
+        ));
     }
 }
