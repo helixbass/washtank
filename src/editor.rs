@@ -43,7 +43,7 @@ pub struct Editor {
 }
 
 impl Editor {
-    fn try_new() -> Result<Self, anyhow::Error> {
+    pub fn try_new() -> Result<Self, anyhow::Error> {
         // let tree_sitter_highlight_names = vec!["comment", "string_literal"];
         Ok(Self {
             current_file: _d(),
@@ -109,7 +109,7 @@ impl Editor {
         })
     }
 
-    async fn run(&mut self, args: Args) -> Result<(), anyhow::Error> {
+    pub async fn run(&mut self, args: Args) -> Result<(), anyhow::Error> {
         self.push_cursor_position()?;
 
         self.open_file(args.file_name).await?;

@@ -443,7 +443,7 @@ mod tests {
             vec![Fold {
                 range: Range { start: 1, end: 3 },
                 num_closes: 1,
-                num_indents_until_shown: 0,
+                full_num_indents: 1,
                 nested: vec![],
             }],
         );
@@ -461,7 +461,7 @@ mod tests {
             vec![Fold {
                 range: Range { start: 1, end: 4 },
                 num_closes: 1,
-                num_indents_until_shown: 0,
+                full_num_indents: 1,
                 nested: vec![],
             }],
         );
@@ -482,18 +482,18 @@ mod tests {
             vec![Fold {
                 range: Range { start: 1, end: 7 },
                 num_closes: 1,
-                num_indents_until_shown: 0,
+                full_num_indents: 1,
                 nested: vec![
-                    Fold {
+                    NestedFold {
                         range: Range { start: 1, end: 3 },
-                        num_closes: 2,
-                        num_indents_until_shown: 0,
+                        additional_num_closes: 1,
+                        additional_full_num_indents: 1,
                         nested: vec![],
                     },
-                    Fold {
+                    NestedFold {
                         range: Range { start: 5, end: 7 },
-                        num_closes: 2,
-                        num_indents_until_shown: 0,
+                        additional_num_closes: 1,
+                        additional_full_num_indents: 1,
                         nested: vec![],
                     },
                 ],
@@ -516,11 +516,11 @@ mod tests {
             vec![Fold {
                 range: Range { start: 1, end: 7 },
                 num_closes: 1,
-                num_indents_until_shown: 0,
-                nested: vec![Fold {
+                full_num_indents: 1,
+                nested: vec![NestedFold {
                     range: Range { start: 3, end: 5 },
-                    num_closes: 2,
-                    num_indents_until_shown: 0,
+                    additional_num_closes: 1,
+                    additional_full_num_indents: 1,
                     nested: vec![],
                 }],
             }],
