@@ -72,44 +72,7 @@ impl Editor {
             return Ok(());
         };
 
-        let max_fold = &self.max_folds.as_ref().unwrap()[fold_index];
-
-        let first_fold_index_to_replace =
-            self.folds.as_ref().unwrap().into_iter().position(|fold| {
-                fold.range.start >= max_fold.range.start && fold.range.end <= max_fold.range.end
-            });
-        let additional_count_to_replace =
-            first_fold_index_to_replace.map(|first_fold_index_to_replace| {
-                self.folds.as_ref().unwrap()[first_fold_index_to_replace..]
-                    .into_iter()
-                    .take_while(|fold| fold.range.end <= max_fold.range.end)
-                    .count()
-            });
-        let range_to_splice = match first_fold_index_to_replace {
-            None => {
-                let first_after = self
-                    .folds
-                    .as_ref()
-                    .unwrap()
-                    .into_iter()
-                    .position(|fold| fold.range.start >= max_fold.range.end);
-                match first_after {
-                    Some(first_after) => first_after..first_after,
-                    None => {
-                        let folds = self.folds.as_ref().unwrap();
-                        folds.len()..folds.len()
-                    }
-                }
-            }
-            Some(first_fold_index_to_replace) => {
-                first_fold_index_to_replace
-                    ..first_fold_index_to_replace + additional_count_to_replace.unwrap() + 1
-            }
-        };
-        self.folds
-            .as_mut()
-            .unwrap()
-            .splice(range_to_splice, [max_fold.clone()]);
+        self.splice_in_new_fold(self.max_folds.as_ref().unwrap()[fold_index].clone());
 
         self.compute_printed_lines();
         let new_cursor_position_row = self
@@ -127,6 +90,45 @@ impl Editor {
 
         self.rerender_screen()?;
         Ok(())
+    }
+
+    fn splice_in_new_fold(&mut self, new_fold: Fold) {
+        let first_fold_index_to_replace =
+            self.folds.as_ref().unwrap().into_iter().position(|fold| {
+                fold.range.start >= new_fold.range.start && fold.range.end <= new_fold.range.end
+            });
+        let additional_count_to_replace =
+            first_fold_index_to_replace.map(|first_fold_index_to_replace| {
+                self.folds.as_ref().unwrap()[first_fold_index_to_replace..]
+                    .into_iter()
+                    .take_while(|fold| fold.range.end <= new_fold.range.end)
+                    .count()
+            });
+        let range_to_splice = match first_fold_index_to_replace {
+            None => {
+                let first_after = self
+                    .folds
+                    .as_ref()
+                    .unwrap()
+                    .into_iter()
+                    .position(|fold| fold.range.start >= new_fold.range.end);
+                match first_after {
+                    Some(first_after) => first_after..first_after,
+                    None => {
+                        let folds = self.folds.as_ref().unwrap();
+                        folds.len()..folds.len()
+                    }
+                }
+            }
+            Some(first_fold_index_to_replace) => {
+                first_fold_index_to_replace
+                    ..first_fold_index_to_replace + additional_count_to_replace.unwrap() + 1
+            }
+        };
+        self.folds
+            .as_mut()
+            .unwrap()
+            .splice(range_to_splice, [new_fold]);
     }
 
     pub fn close_fold_under_cursor_one_level(&mut self) -> Result<(), anyhow::Error> {
@@ -148,7 +150,15 @@ impl Editor {
                 let Some(innermost_max_fold) = self.find_innermost_max_fold(line_num) else {
                     return Ok(());
                 };
-                unimplemented!()
+                self.splice_in_new_fold(
+                    match innermost_max_fold {
+                        FoldOrNestedFold::Fold(fold) => fold.clone(),
+                        FoldOrNestedFold::NestedFold(nested) => Fold {
+                            range: nested.range,
+                            full_num_indents: 
+                        }
+                    }
+                );
             }
         }
 
@@ -166,23 +176,38 @@ impl Editor {
             .find(|fold| fold.range.start <= line_num && fold.range.end > line_num)?;
         Some(
             find_innermost_max_fold_nested(line_num, fold)
-                .map(FoldOrNestedFold::NestedFold)
+                .map(|(nested, parent_num_indents_from_past_this_level)| FoldOrNestedFold::NestedFold(nested, fold.full_num_indents + parent_num_indents_from_past_this_level))
                 .unwrap_or_else(|| FoldOrNestedFold::Fold(fold)),
         )
     }
 }
 
-fn find_innermost_max_fold_nested(line_num: usize, fold: &impl HasNested) -> Option<&NestedFold> {
+type ParentNumIndentsFromPastThisLevel = usize;
+
+fn find_innermost_max_fold_nested(line_num: usize, fold: &impl HasNested) -> Option<(&NestedFold, ParentNumIndentsFromPastThisLevel)> {
     let found_nested = fold
         .nested()
         .into_iter()
         .find(|nested| nested.range.start <= line_num && nested.range.end > line_num)?;
-    Some(find_innermost_max_fold_nested(line_num, found_nested).unwrap_or(found_nested))
+    Some(
+        find_innermost_max_fold_nested(
+            line_num,
+            found_nested,
+        ).map(|(nested, parent_num_indents_from_past_this_level)| {
+            (
+                nested,
+                parent_num_indents_from_past_this_level + found_nested.additional_full_num_indents
+            )
+        })
+        .unwrap_or((found_nested, 0))
+    )
 }
+
+type ParentFullNumIndents = usize;
 
 enum FoldOrNestedFold<'a> {
     Fold(&'a Fold),
-    NestedFold(&'a NestedFold),
+    NestedFold(&'a NestedFold, ParentFullNumIndents),
 }
 
 pub type FoldIndex = usize;
