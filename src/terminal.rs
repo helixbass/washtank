@@ -4,12 +4,14 @@ use tokio_stream::StreamExt;
 
 use crate::World;
 
-pub async fn listen_to_crossterm_events(sender: Sender<World>) {
-    let mut event_stream = EventStream::new();
+pub fn listen_to_crossterm_events(sender: Sender<World>) {
+    tokio::spawn(async move {
+        let mut event_stream = EventStream::new();
 
-    while let Some(Ok(event)) = event_stream.next().await {
-        sender.send(World::Crossterm(event)).await.unwrap();
-    }
+        while let Some(Ok(event)) = event_stream.next().await {
+            sender.send(World::Crossterm(event)).await.unwrap();
+        }
 
-    panic!("kill everything")
+        panic!("kill everything")
+    });
 }

@@ -10,6 +10,7 @@ crossterm = { version = "0.29.0", features = ["event-stream"] }
 ouroboros = "0.18.5"
 regex = "1.12.2"
 ropey = "1.6.1"
+serde = { version = "1.0.228", features = ["derive"] }
 smallvec = "1.15.1"
 smol_str = "0.3.4"
 squalid = { git = "https://github.com/helixbass/squalid", rev = "646f6bf" }

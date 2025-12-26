@@ -7,6 +7,7 @@ use clap::Parser;
 mod editor;
 mod fold;
 mod indent;
+mod jsonrpc;
 mod lsp;
 mod terminal;
 mod tree_sitter;

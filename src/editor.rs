@@ -107,13 +107,11 @@ impl Editor {
 
         let (sender, mut receiver) = channel::<World>(100);
 
-        tokio::spawn(async move { listen_to_crossterm_events(sender.clone()).await });
+        listen_to_crossterm_events(sender.clone());
 
         let (rust_analyzer_sender, rust_analyzer_receiver) = channel::<LspOutgoingMessage>(100);
 
-        tokio::spawn(
-            async move { run_rust_analyzer(sender.clone(), rust_analyzer_receiver).await },
-        );
+        run_rust_analyzer(sender.clone(), rust_analyzer_receiver);
 
         let mut in_progress_command: Vec<char> = _d();
 
