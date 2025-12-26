@@ -1,14 +1,15 @@
 // from scook12/rust-lsp
 
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader},
-    process::ChildStdout,
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader, BufWriter},
+    process::{ChildStdin, ChildStdout},
     sync::{mpsc, oneshot, RwLock},
 };
 
@@ -315,6 +316,127 @@ impl RpcMessage {
     }
 }
 
+/// Request message to describe a request between client and server.
+/// Every processed request must send a response back to the sender.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestMessage {
+    /// JSON-RPC version
+    pub jsonrpc: String,
+    /// The request ID
+    pub id: Id,
+    /// The method to be invoked
+    pub method: String,
+    /// The method's parameters
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<serde_json::Value>,
+}
+
+impl RequestMessage {
+    /// Create a new request message.
+    pub fn new(id: impl Into<Id>, method: impl Into<String>) -> Self {
+        Self {
+            jsonrpc: "2.0".to_string(),
+            id: id.into(),
+            method: method.into(),
+            params: None,
+        }
+    }
+
+    /// Create a new request message with parameters.
+    pub fn with_params(
+        id: impl Into<Id>,
+        method: impl Into<String>,
+        params: serde_json::Value,
+    ) -> Self {
+        Self {
+            jsonrpc: "2.0".to_string(),
+            id: id.into(),
+            method: method.into(),
+            params: Some(params),
+        }
+    }
+}
+
+/// Response message sent as a result of a request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResponseMessage {
+    /// JSON-RPC version
+    pub jsonrpc: String,
+    /// The request ID (same as the request, or null for parse errors)
+    pub id: Option<Id>,
+    /// The result of a successful request
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<serde_json::Value>,
+    /// The error object in case of failure
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<ResponseError>,
+}
+
+impl ResponseMessage {
+    /// Create a successful response.
+    pub fn success(id: impl Into<Id>, result: serde_json::Value) -> Self {
+        Self {
+            jsonrpc: "2.0".to_string(),
+            id: Some(id.into()),
+            result: Some(result),
+            error: None,
+        }
+    }
+
+    /// Create an error response.
+    pub fn error(id: Option<Id>, error: ResponseError) -> Self {
+        Self {
+            jsonrpc: "2.0".to_string(),
+            id,
+            result: None,
+            error: Some(error),
+        }
+    }
+
+    /// Check if this response represents an error.
+    pub fn is_error(&self) -> bool {
+        self.error.is_some()
+    }
+
+    /// Get the error if present.
+    pub fn get_error(&self) -> Option<&ResponseError> {
+        self.error.as_ref()
+    }
+}
+
+/// Notification message.
+/// A processed notification message must not send a response back.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationMessage {
+    /// JSON-RPC version
+    pub jsonrpc: String,
+    /// The method to be invoked
+    pub method: String,
+    /// The notification's parameters
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<serde_json::Value>,
+}
+
+impl NotificationMessage {
+    /// Create a new notification message.
+    pub fn new(method: impl Into<String>) -> Self {
+        Self {
+            jsonrpc: "2.0".to_string(),
+            method: method.into(),
+            params: None,
+        }
+    }
+
+    /// Create a new notification message with parameters.
+    pub fn with_params(method: impl Into<String>, params: serde_json::Value) -> Self {
+        Self {
+            jsonrpc: "2.0".to_string(),
+            method: method.into(),
+            params: Some(params),
+        }
+    }
+}
+
 /// The default content type for LSP messages.
 pub const DEFAULT_CONTENT_TYPE: &str = "application/vscode-jsonrpc; charset=utf-8";
 
@@ -328,11 +450,11 @@ impl Reader {
     }
 
     /// Read a complete message from the transport.
-    pub async fn read_message(&mut self) -> anyhow::Result<Message> {
+    pub async fn read_message(&mut self) -> anyhow::Result<RpcMessage> {
         let headers = self.read_headers().await?;
         let content = self.read_content(&headers).await?;
 
-        Ok(Message { headers, content })
+        Ok(Message { headers, content }.parse_rpc_message()?)
     }
 
     /// Read message headers from the transport.
@@ -418,7 +540,15 @@ impl Reader {
     }
 }
 
+pub struct Writer {
+    writer: BufWriter<ChildStdin>,
+}
+
 impl Writer {
+    pub fn new(writer: BufWriter<ChildStdin>) -> Self {
+        Self { writer }
+    }
+
     /// Write a message to the transport.
     pub async fn write_message(&mut self, message: &Message) -> anyhow::Result<()> {
         let bytes = message.to_bytes();
@@ -526,7 +656,7 @@ impl Message {
     }
 
     /// Parse the content as an RPC message.
-    pub fn parse_rpc_message(&self) -> Result<RpcMessage> {
+    pub fn parse_rpc_message(&self) -> anyhow::Result<RpcMessage> {
         Ok(serde_json::from_str(&self.content)?)
     }
 
@@ -558,5 +688,144 @@ impl Message {
         result.extend_from_slice(self.content.as_bytes());
 
         result
+    }
+}
+
+/// Type alias for request/notification IDs.
+/// Can be either a number or a string as per JSON-RPC spec.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Id {
+    Number(i64),
+    String(String),
+}
+
+impl From<i64> for Id {
+    fn from(value: i64) -> Self {
+        Id::Number(value)
+    }
+}
+
+impl From<String> for Id {
+    fn from(value: String) -> Self {
+        Id::String(value)
+    }
+}
+
+impl From<&str> for Id {
+    fn from(value: &str) -> Self {
+        Id::String(value.to_string())
+    }
+}
+
+impl std::fmt::Display for Id {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Id::Number(n) => write!(f, "{}", n),
+            Id::String(s) => write!(f, "{}", s),
+        }
+    }
+}
+
+/// LSP ResponseError as defined by the JSON-RPC specification.
+/// This corresponds to the error object in LSP response messages.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResponseError {
+    /// A number indicating the error type that occurred.
+    pub code: i32,
+    /// A string providing a short description of the error.
+    pub message: String,
+    /// A primitive or structured value that contains additional information about the error.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
+}
+
+impl fmt::Display for ResponseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Error {}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for ResponseError {}
+
+/// Error codes as defined by the LSP specification.
+pub mod error_codes {
+    // JSON RPC error codes
+    pub const PARSE_ERROR: i32 = -32700;
+    pub const INVALID_REQUEST: i32 = -32600;
+    pub const METHOD_NOT_FOUND: i32 = -32601;
+    pub const INVALID_PARAMS: i32 = -32602;
+    pub const INTERNAL_ERROR: i32 = -32603;
+
+    // JSON RPC reserved error range
+    pub const JSONRPC_RESERVED_ERROR_RANGE_START: i32 = -32099;
+    pub const SERVER_NOT_INITIALIZED: i32 = -32002;
+    pub const UNKNOWN_ERROR_CODE: i32 = -32001;
+    pub const JSONRPC_RESERVED_ERROR_RANGE_END: i32 = -32000;
+
+    // LSP reserved error range
+    pub const LSP_RESERVED_ERROR_RANGE_START: i32 = -32899;
+    pub const CONTENT_MODIFIED: i32 = -32801;
+    pub const REQUEST_CANCELLED: i32 = -32800;
+    pub const LSP_RESERVED_ERROR_RANGE_END: i32 = -32800;
+}
+
+impl ResponseError {
+    /// Create a new ResponseError with the given code and message.
+    pub fn new(code: i32, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            data: None,
+        }
+    }
+
+    /// Create a new ResponseError with additional data.
+    pub fn with_data(code: i32, message: impl Into<String>, data: serde_json::Value) -> Self {
+        Self {
+            code,
+            message: message.into(),
+            data: Some(data),
+        }
+    }
+
+    /// Create a parse error.
+    pub fn parse_error(message: impl Into<String>) -> Self {
+        Self::new(error_codes::PARSE_ERROR, message)
+    }
+
+    /// Create an invalid request error.
+    pub fn invalid_request(message: impl Into<String>) -> Self {
+        Self::new(error_codes::INVALID_REQUEST, message)
+    }
+
+    /// Create a method not found error.
+    pub fn method_not_found(message: impl Into<String>) -> Self {
+        Self::new(error_codes::METHOD_NOT_FOUND, message)
+    }
+
+    /// Create an invalid params error.
+    pub fn invalid_params(message: impl Into<String>) -> Self {
+        Self::new(error_codes::INVALID_PARAMS, message)
+    }
+
+    /// Create an internal error.
+    pub fn internal_error(message: impl Into<String>) -> Self {
+        Self::new(error_codes::INTERNAL_ERROR, message)
+    }
+
+    /// Create a server not initialized error.
+    pub fn server_not_initialized(message: impl Into<String>) -> Self {
+        Self::new(error_codes::SERVER_NOT_INITIALIZED, message)
+    }
+
+    /// Create a request cancelled error.
+    pub fn request_cancelled(message: impl Into<String>) -> Self {
+        Self::new(error_codes::REQUEST_CANCELLED, message)
+    }
+
+    /// Create a content modified error.
+    pub fn content_modified(message: impl Into<String>) -> Self {
+        Self::new(error_codes::CONTENT_MODIFIED, message)
     }
 }

@@ -15,6 +15,7 @@ mod tree_sitter;
 pub use editor::{Editor, PrintedLine, World};
 pub use fold::{calculate_folds, Fold, FoldIndex};
 pub use indent::{calculate_indents, IndentLevel};
+pub use jsonrpc::RpcMessage;
 pub use lsp::{run_rust_analyzer, LspIncomingMessage, LspOutgoingMessage};
 pub use terminal::listen_to_crossterm_events;
 pub use tree_sitter::TreeSitterHighlight;

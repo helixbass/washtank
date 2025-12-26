@@ -870,6 +870,7 @@ dependencies = [
  "regex",
  "ropey",
  "serde",
+ "serde_json",
  "smallvec",
  "smol_str",
  "squalid",
