@@ -17,8 +17,8 @@ use squalid::{EverythingExt, _d, regex};
 use tokio::{fs, sync::mpsc::channel};
 
 use crate::{
-    listen_to_crossterm_events, strip_trailing_newline, Args, Fold, FoldIndex, IndentLevel,
-    LineNumber, TreeSitterHighlight,
+    listen_to_crossterm_events, run_rust_analyzer, strip_trailing_newline, Args, Fold, FoldIndex,
+    IndentLevel, LineNumber, LspIncomingMessage, LspOutgoingMessage, TreeSitterHighlight,
 };
 
 pub struct Editor {
@@ -108,6 +108,12 @@ impl Editor {
         let (sender, mut receiver) = channel::<World>(100);
 
         tokio::spawn(async move { listen_to_crossterm_events(sender.clone()).await });
+
+        let (rust_analyzer_sender, rust_analyzer_receiver) = channel::<LspOutgoingMessage>(100);
+
+        tokio::spawn(
+            async move { run_rust_analyzer(sender.clone(), rust_analyzer_receiver).await },
+        );
 
         let mut in_progress_command: Vec<char> = _d();
 
@@ -660,4 +666,5 @@ fn known_colors() -> &'static HashMap<String, Color> {
 
 pub enum World {
     Crossterm(Event),
+    Lsp(LspIncomingMessage),
 }
