@@ -343,65 +343,40 @@ impl RequestMessage {
     }
 
     /// Create a new request message with parameters.
-    pub fn with_params(
+    pub fn with_params<TParams: Serialize>(
         id: impl Into<Id>,
         method: impl Into<String>,
-        params: serde_json::Value,
+        params: TParams,
     ) -> Self {
         Self {
             jsonrpc: "2.0".to_string(),
             id: id.into(),
             method: method.into(),
-            params: Some(params),
+            params: Some(serde_json::to_value(params).unwrap()),
         }
     }
 }
 
 /// Response message sent as a result of a request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResponseMessage {
-    /// JSON-RPC version
-    pub jsonrpc: String,
-    /// The request ID (same as the request, or null for parse errors)
-    pub id: Option<Id>,
-    /// The result of a successful request
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub result: Option<serde_json::Value>,
-    /// The error object in case of failure
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<ResponseError>,
+#[serde(untagged)]
+pub enum ResponseMessage {
+    Error(ResponseMessageError),
+    Success(ResponseMessageSuccess),
 }
 
-impl ResponseMessage {
-    /// Create a successful response.
-    pub fn success(id: impl Into<Id>, result: serde_json::Value) -> Self {
-        Self {
-            jsonrpc: "2.0".to_string(),
-            id: Some(id.into()),
-            result: Some(result),
-            error: None,
-        }
-    }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResponseMessageSuccess {
+    pub jsonrpc: String,
+    pub id: Id,
+    pub result: Option<serde_json::Value>,
+}
 
-    /// Create an error response.
-    pub fn error(id: Option<Id>, error: ResponseError) -> Self {
-        Self {
-            jsonrpc: "2.0".to_string(),
-            id,
-            result: None,
-            error: Some(error),
-        }
-    }
-
-    /// Check if this response represents an error.
-    pub fn is_error(&self) -> bool {
-        self.error.is_some()
-    }
-
-    /// Get the error if present.
-    pub fn get_error(&self) -> Option<&ResponseError> {
-        self.error.as_ref()
-    }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResponseMessageError {
+    pub jsonrpc: String,
+    pub id: Option<Id>,
+    pub error: ResponseError,
 }
 
 /// Notification message.

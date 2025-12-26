@@ -1,12 +1,14 @@
-use std::process::Stdio;
+use std::sync::atomic::AtomicU32;
+use std::{process::Stdio, sync::atomic::AtomicU32};
 
+use lsp_types::InitializeParams;
 use tokio::{
     io::{BufReader, BufWriter},
     process::Command,
     sync::mpsc::{Receiver, Sender},
 };
 
-use crate::{jsonrpc, RpcMessage, World};
+use crate::{jsonrpc, RequestMessage, RpcMessage, World};
 
 pub fn run_rust_analyzer(sender: Sender<World>, mut receiver: Receiver<LspOutgoingMessage>) {
     let mut command = Command::new("rust-analyzer");
@@ -35,16 +37,36 @@ pub fn run_rust_analyzer(sender: Sender<World>, mut receiver: Receiver<LspOutgoi
 
     tokio::spawn(async move {
         let mut writer = jsonrpc::Writer::new(BufWriter::new(stdin));
+        let mut next_id = 1;
 
         while let Some(message) = receiver.recv().await {
-            writer.write_rpc_message(&message.into()).await.unwrap();
+            writer
+                .write_rpc_message(&message.into_rpc_message({
+                    let id = next_id;
+                    next_id += 1;
+                    id
+                }))
+                .await
+                .unwrap();
         }
 
         panic!("rust-analyzer sender finished")
     });
 }
 
-pub enum LspOutgoingMessage {}
+pub enum LspOutgoingMessage {
+    Initialize(InitializeParams),
+}
+
+impl LspOutgoingMessage {
+    pub fn into_rpc_message(self, id: i64) -> RpcMessage {
+        match self {
+            Self::Initialize(initialize) => {
+                RpcMessage::Request(RequestMessage::with_params(id, "initialize", initialize))
+            }
+        }
+    }
+}
 
 pub enum LspIncomingMessage {}
 
@@ -52,12 +74,6 @@ impl TryFrom<RpcMessage> for LspIncomingMessage {
     type Error = String;
 
     fn try_from(value: RpcMessage) -> Result<Self, Self::Error> {
-        unimplemented!()
-    }
-}
-
-impl From<LspOutgoingMessage> for RpcMessage {
-    fn from(value: LspOutgoingMessage) -> Self {
         unimplemented!()
     }
 }
