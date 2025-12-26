@@ -150,15 +150,16 @@ impl Editor {
                 let Some(innermost_max_fold) = self.find_innermost_max_fold(line_num) else {
                     return Ok(());
                 };
-                self.splice_in_new_fold(
-                    match innermost_max_fold {
-                        FoldOrNestedFold::Fold(fold) => fold.clone(),
-                        FoldOrNestedFold::NestedFold(nested) => Fold {
-                            range: nested.range,
-                            full_num_indents: 
-                        }
-                    }
-                );
+                self.splice_in_new_fold(match innermost_max_fold {
+                    FoldOrNestedFold::Fold(fold) => fold.clone(),
+                    FoldOrNestedFold::NestedFold(nested, parent_full_num_indents) => Fold {
+                        range: nested.range,
+                        full_num_indents: nested.additional_full_num_indents
+                            + parent_full_num_indents,
+                        nested: nested.nested.clone(),
+                        num_closes: 1,
+                    },
+                });
             }
         }
 
@@ -176,7 +177,12 @@ impl Editor {
             .find(|fold| fold.range.start <= line_num && fold.range.end > line_num)?;
         Some(
             find_innermost_max_fold_nested(line_num, fold)
-                .map(|(nested, parent_num_indents_from_past_this_level)| FoldOrNestedFold::NestedFold(nested, fold.full_num_indents + parent_num_indents_from_past_this_level))
+                .map(|(nested, parent_num_indents_from_past_this_level)| {
+                    FoldOrNestedFold::NestedFold(
+                        nested,
+                        fold.full_num_indents + parent_num_indents_from_past_this_level,
+                    )
+                })
                 .unwrap_or_else(|| FoldOrNestedFold::Fold(fold)),
         )
     }
@@ -184,22 +190,24 @@ impl Editor {
 
 type ParentNumIndentsFromPastThisLevel = usize;
 
-fn find_innermost_max_fold_nested(line_num: usize, fold: &impl HasNested) -> Option<(&NestedFold, ParentNumIndentsFromPastThisLevel)> {
+fn find_innermost_max_fold_nested(
+    line_num: usize,
+    fold: &impl HasNested,
+) -> Option<(&NestedFold, ParentNumIndentsFromPastThisLevel)> {
     let found_nested = fold
         .nested()
         .into_iter()
         .find(|nested| nested.range.start <= line_num && nested.range.end > line_num)?;
     Some(
-        find_innermost_max_fold_nested(
-            line_num,
-            found_nested,
-        ).map(|(nested, parent_num_indents_from_past_this_level)| {
-            (
-                nested,
-                parent_num_indents_from_past_this_level + found_nested.additional_full_num_indents
-            )
-        })
-        .unwrap_or((found_nested, 0))
+        find_innermost_max_fold_nested(line_num, found_nested)
+            .map(|(nested, parent_num_indents_from_past_this_level)| {
+                (
+                    nested,
+                    parent_num_indents_from_past_this_level
+                        + found_nested.additional_full_num_indents,
+                )
+            })
+            .unwrap_or((found_nested, 0)),
     )
 }
 
