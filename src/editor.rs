@@ -13,7 +13,7 @@ use crossterm::{
 };
 use ropey::Rope;
 use smol_str::format_smolstr;
-use squalid::{EverythingExt, _d};
+use squalid::{EverythingExt, _d, regex};
 use tokio::fs;
 use tokio_stream::StreamExt;
 
@@ -380,11 +380,28 @@ impl Editor {
                     self.stdout.queue(Print(" lines: "))?;
                     num_bytes_printed_on_fold_line += 8;
                     let line = self.current_file.rope().line(fold.range.start);
+                    let mut has_passed_initial_blanks = false;
                     for chunk in line.chunks() {
                         let to_print = if chunk.ends_with("\n") {
                             &chunk[..chunk.len() - 1]
                         } else {
                             chunk
+                        };
+                        let to_print = match has_passed_initial_blanks {
+                            true => to_print,
+                            false => match regex!(r#"^ +"#).find(to_print) {
+                                None => {
+                                    has_passed_initial_blanks = true;
+                                    to_print
+                                }
+                                Some(initial_blanks) => {
+                                    if initial_blanks.len() == to_print.len() {
+                                        continue;
+                                    }
+                                    has_passed_initial_blanks = true;
+                                    &to_print[initial_blanks.len()..]
+                                }
+                            },
                         };
                         let remaining_bytes_on_line =
                             usize::from(self.size.width) - num_bytes_printed_on_fold_line;
@@ -394,6 +411,7 @@ impl Editor {
                             break;
                         }
                         self.stdout.queue(Print(to_print))?;
+                        num_bytes_printed_on_fold_line += to_print.len();
                     }
                 }
                 PrintedLine::Line(_) => {
