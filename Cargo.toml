@@ -11,6 +11,7 @@ ouroboros = "0.18.5"
 regex = "1.12.2"
 ropey = "1.6.1"
 smallvec = "1.15.1"
+smol_str = "0.3.4"
 squalid = { git = "https://github.com/helixbass/squalid", rev = "646f6bf" }
 tokio = { version = "1.48.0", features = ["full", "fs"] }
 tokio-stream = "0.1.17"
