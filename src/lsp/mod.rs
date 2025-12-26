@@ -1,5 +1,4 @@
-use std::sync::atomic::AtomicU32;
-use std::{process::Stdio, sync::atomic::AtomicU32};
+use std::process::Stdio;
 
 use lsp_types::InitializeParams;
 use tokio::{

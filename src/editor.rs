@@ -2,6 +2,7 @@ use std::cmp;
 use std::collections::HashMap;
 use std::io::{stdout, StdoutLock, Write};
 use std::path::PathBuf;
+use std::process;
 use std::sync::LazyLock;
 
 use crossterm::{
@@ -11,6 +12,7 @@ use crossterm::{
     terminal::{size, Clear, ClearType},
     ExecutableCommand, QueueableCommand,
 };
+use lsp_types::{ClientInfo, InitializeParams};
 use ropey::Rope;
 use smol_str::format_smolstr;
 use squalid::{EverythingExt, _d, regex};
@@ -112,6 +114,19 @@ impl Editor {
         let (rust_analyzer_sender, rust_analyzer_receiver) = channel::<LspOutgoingMessage>(100);
 
         run_rust_analyzer(sender.clone(), rust_analyzer_receiver);
+
+        rust_analyzer_sender
+            .send(LspOutgoingMessage::Initialize(InitializeParams {
+                // TODO: is std::process:id() blocking aka shouldn't use it
+                // from tokio?
+                process_id: Some(process::id()),
+                client_info: Some(ClientInfo {
+                    name: "washtank".to_owned(),
+                    // TODO: make this real?
+                    version: Some("0.0.1-dev.0".to_owned()),
+                }),
+            }))
+            .unwrap();
 
         let mut in_progress_command: Vec<char> = _d();
 
