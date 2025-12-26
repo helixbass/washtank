@@ -8,7 +8,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader, BufWriter},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader, BufWriter},
     process::{ChildStdin, ChildStdout},
     sync::{mpsc, oneshot, RwLock},
 };
