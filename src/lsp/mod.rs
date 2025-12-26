@@ -8,7 +8,7 @@ use tokio::{
 
 use crate::{jsonrpc, RpcMessage, World};
 
-pub fn run_rust_analyzer(sender: Sender<World>, receiver: Receiver<LspOutgoingMessage>) {
+pub fn run_rust_analyzer(sender: Sender<World>, mut receiver: Receiver<LspOutgoingMessage>) {
     let mut command = Command::new("rust-analyzer");
     command.stdout(Stdio::piped());
     command.stdin(Stdio::piped());
@@ -34,7 +34,13 @@ pub fn run_rust_analyzer(sender: Sender<World>, receiver: Receiver<LspOutgoingMe
     });
 
     tokio::spawn(async move {
-        let writer = jsonrpc::Writer::new(BufWriter::new(stdin));
+        let mut writer = jsonrpc::Writer::new(BufWriter::new(stdin));
+
+        while let Some(message) = receiver.recv().await {
+            writer.write_rpc_message(&message.into()).await.unwrap();
+        }
+
+        panic!("rust-analyzer sender finished")
     });
 }
 
@@ -46,6 +52,12 @@ impl TryFrom<RpcMessage> for LspIncomingMessage {
     type Error = String;
 
     fn try_from(value: RpcMessage) -> Result<Self, Self::Error> {
+        unimplemented!()
+    }
+}
+
+impl From<LspOutgoingMessage> for RpcMessage {
+    fn from(value: LspOutgoingMessage) -> Self {
         unimplemented!()
     }
 }
