@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 
 use crossterm::{
     cursor,
-    event::{Event, EventStream, KeyCode},
+    event::{Event, KeyCode},
     style::{Color, Print, ResetColor, SetForegroundColor},
     terminal::{size, Clear, ClearType},
     ExecutableCommand, QueueableCommand,
@@ -14,11 +14,11 @@ use crossterm::{
 use ropey::Rope;
 use smol_str::format_smolstr;
 use squalid::{EverythingExt, _d, regex};
-use tokio::fs;
-use tokio_stream::StreamExt;
+use tokio::{fs, sync::mpsc::channel};
 
 use crate::{
-    strip_trailing_newline, Args, Fold, FoldIndex, IndentLevel, LineNumber, TreeSitterHighlight,
+    listen_to_crossterm_events, strip_trailing_newline, Args, Fold, FoldIndex, IndentLevel,
+    LineNumber, TreeSitterHighlight,
 };
 
 pub struct Editor {
@@ -105,13 +105,15 @@ impl Editor {
 
         self.open_file(args.file_name).await?;
 
-        let mut event_stream = EventStream::new();
+        let (sender, mut receiver) = channel::<World>(100);
+
+        tokio::spawn(async move { listen_to_crossterm_events(sender.clone()).await });
 
         let mut in_progress_command: Vec<char> = _d();
 
-        while let Some(Ok(event)) = event_stream.next().await {
-            match event {
-                Event::Key(key) => match key.code {
+        while let Some(world) = receiver.recv().await {
+            match world {
+                World::Crossterm(Event::Key(key)) => match key.code {
                     KeyCode::Char('j') => {
                         assert!(in_progress_command.is_empty());
                         self.maybe_move_cursor_down_one_line()?;
@@ -654,4 +656,8 @@ fn known_colors() -> &'static HashMap<String, Color> {
         .collect()
     });
     &*KNOWN_COLORS
+}
+
+pub enum World {
+    Crossterm(Event),
 }

@@ -7,11 +7,14 @@ use clap::Parser;
 mod editor;
 mod fold;
 mod indent;
+mod lsp;
+mod terminal;
 mod tree_sitter;
 
-pub use editor::{Editor, PrintedLine};
+pub use editor::{Editor, PrintedLine, World};
 pub use fold::{calculate_folds, Fold, FoldIndex};
 pub use indent::{calculate_indents, IndentLevel};
+pub use terminal::listen_to_crossterm_events;
 pub use tree_sitter::TreeSitterHighlight;
 
 pub type LineNumber = usize;
