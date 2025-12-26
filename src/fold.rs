@@ -130,8 +130,59 @@ impl Editor {
     }
 
     pub fn close_fold_under_cursor_one_level(&mut self) -> Result<(), anyhow::Error> {
-        unimplemented!()
+        match self.printed_lines.as_ref().unwrap()[usize::from(self.cursor_position.row)] {
+            PrintedLine::Fold(fold_index) => {
+                if self.folds.as_ref().unwrap()[fold_index].num_closes
+                    == self.folds.as_ref().unwrap()[fold_index].full_num_indents
+                {
+                    return Ok(());
+                }
+                self.folds
+                    .as_mut()
+                    .unwrap()
+                    .get_mut(fold_index)
+                    .unwrap()
+                    .num_closes += 1;
+            }
+            PrintedLine::Line(line_num) => {
+                let Some(innermost_max_fold) = self.find_innermost_max_fold(line_num) else {
+                    return Ok(());
+                };
+                unimplemented!()
+            }
+        }
+
+        self.compute_printed_lines();
+        self.rerender_screen()?;
+        return Ok(());
     }
+
+    fn find_innermost_max_fold(&self, line_num: usize) -> Option<FoldOrNestedFold<'_>> {
+        let fold = self
+            .max_folds
+            .as_ref()
+            .unwrap()
+            .into_iter()
+            .find(|fold| fold.range.start <= line_num && fold.range.end > line_num)?;
+        Some(
+            find_innermost_max_fold_nested(line_num, fold)
+                .map(FoldOrNestedFold::NestedFold)
+                .unwrap_or_else(|| FoldOrNestedFold::Fold(fold)),
+        )
+    }
+}
+
+fn find_innermost_max_fold_nested(line_num: usize, fold: &impl HasNested) -> Option<&NestedFold> {
+    let found_nested = fold
+        .nested()
+        .into_iter()
+        .find(|nested| nested.range.start <= line_num && nested.range.end > line_num)?;
+    Some(find_innermost_max_fold_nested(line_num, found_nested).unwrap_or(found_nested))
+}
+
+enum FoldOrNestedFold<'a> {
+    Fold(&'a Fold),
+    NestedFold(&'a NestedFold),
 }
 
 pub type FoldIndex = usize;
@@ -203,6 +254,16 @@ pub struct Fold {
     pub nested: Vec<NestedFold>,
 }
 
+trait HasNested {
+    fn nested(&self) -> &[NestedFold];
+}
+
+impl HasNested for Fold {
+    fn nested(&self) -> &[NestedFold] {
+        &self.nested
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NestedFold {
     pub range: Range,
@@ -211,10 +272,9 @@ pub struct NestedFold {
     pub nested: Vec<NestedFold>,
 }
 
-fn decrement_fold_num_indents(fold: &mut Fold) {
-    fold.num_indents -= 1;
-    for nested in &mut fold.nested {
-        decrement_fold_num_indents(nested);
+impl HasNested for NestedFold {
+    fn nested(&self) -> &[NestedFold] {
+        &self.nested
     }
 }
 
