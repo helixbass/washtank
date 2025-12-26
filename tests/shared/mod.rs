@@ -13,9 +13,15 @@ pub fn run_interactive_test(file_name: &str, input: &str, expected_screen_state:
         .arg(&format!("fixtures/{file_name}"))
         .output()
         .unwrap();
+    let mut stdout = &*output.stdout;
+    // this is maybe what it prints to clear the screen eg
+    // before quitting?
+    if stdout.ends_with(&[27, 91, 63, 49, 48, 52, 57, 108]) {
+        stdout = &stdout[..stdout.len() - 8];
+    }
 
     let mut parser = vt100::Parser::new(24, 80, 0);
-    parser.process(&output.stdout);
+    parser.process(stdout);
     assert_expected_screen_contents(&parser.screen(), expected_screen_state);
 }
 
