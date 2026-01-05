@@ -115,18 +115,18 @@ impl Editor {
 
         run_rust_analyzer(sender.clone(), rust_analyzer_receiver);
 
-        rust_analyzer_sender
-            .send(LspOutgoingMessage::Initialize(InitializeParams {
-                // TODO: is std::process:id() blocking aka shouldn't use it
-                // from tokio?
-                process_id: Some(process::id()),
-                client_info: Some(ClientInfo {
-                    name: "washtank".to_owned(),
-                    // TODO: make this real?
-                    version: Some("0.0.1-dev.0".to_owned()),
-                }),
-            }))
-            .unwrap();
+        // rust_analyzer_sender
+        //     .send(LspOutgoingMessage::Initialize(InitializeParams {
+        //         // TODO: is std::process:id() blocking aka shouldn't use it
+        //         // from tokio?
+        //         process_id: Some(process::id()),
+        //         client_info: Some(ClientInfo {
+        //             name: "washtank".to_owned(),
+        //             // TODO: make this real?
+        //             version: Some("0.0.1-dev.0".to_owned()),
+        //         }),
+        //     }))
+        //     .unwrap();
 
         let mut in_progress_command: Vec<char> = _d();
 

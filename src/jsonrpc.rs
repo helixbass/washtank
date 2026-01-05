@@ -310,7 +310,7 @@ impl RpcMessage {
     pub fn id(&self) -> Option<&Id> {
         match self {
             RpcMessage::Request(req) => Some(&req.id),
-            RpcMessage::Response(resp) => resp.id.as_ref(),
+            RpcMessage::Response(resp) => resp.id(),
             RpcMessage::Notification(_) => None,
         }
     }
@@ -363,6 +363,15 @@ impl RequestMessage {
 pub enum ResponseMessage {
     Error(ResponseMessageError),
     Success(ResponseMessageSuccess),
+}
+
+impl ResponseMessage {
+    pub fn id(&self) -> Option<&Id> {
+        match self {
+            Self::Error(error) => error.id.as_ref(),
+            Self::Success(success) => Some(&success.id),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
