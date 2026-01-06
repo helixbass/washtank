@@ -17,7 +17,7 @@ use crossterm::{
 use lsp_types::{ClientInfo, InitializeParams};
 use oelung::{soft, Component, ComponentInterface, Grid};
 use oelung_lantern::{is_simple_char_press, ReceiveEvent};
-use ropey::Rope;
+use ropey::{Rope, RopeSlice};
 use smallvec::{smallvec, SmallVec};
 use smol_str::format_smolstr;
 use squalid::{EverythingExt, _d, regex};
@@ -281,7 +281,13 @@ impl<'a> ComponentInterface for &'a Editor {
                           %Text children => [
                             relative_line_number
                             %Text " "
-                            %FoldLine::new(&self.folds[*fold_index])
+                            %{
+                                let fold = &self.folds[*fold_index];
+                                FoldLine::new(
+                                    fold,
+                                    self.current_file.rope().line(fold.range.start),
+                                )
+                            }
                           ]
                       },
                       PrintedLineChunks::Line(line_num, line_chunks) => {
@@ -744,6 +750,93 @@ impl ComponentInterface for RelativeLineNumber {
                       color => color
                 }
             }
+        })
+    }
+}
+
+struct FoldLine<'a> {
+    pub fold: &'a Fold,
+    pub line: RopeSlice<'a>,
+}
+
+impl<'a> FoldLine<'a> {
+    pub fn new(fold: &'a Fold, line: RopeSlice<'a>) -> Self {
+        Self { fold, line }
+    }
+}
+
+impl<'a> ComponentInterface for FoldLine<'a> {
+    fn render(&self, grid: Grid) -> Result<Component<'_>, anyhow::Error> {
+        Ok(soft! {
+            %Text
+              children => {
+                let mut children = smallvec![
+                    soft! {
+                        %Text "+--"
+                    }.into_text_child()
+                ];
+                let mut num_bytes_printed_on_fold_line = 3;
+                for _ in self.fold.num_closes..self.fold.full_num_indents {
+                    children.push(soft! {
+                        %Text "-"
+                    }.into_text_child());
+                    num_bytes_printed_on_fold_line += 1;
+                }
+                let printed_num_lines =
+                    format_smolstr!("{}", self.fold.range.end - self.fold.range.start);
+                if printed_num_lines.len() < 3 {
+                    children.push(soft! {
+                        %Text " "
+                    }.into_text_child());
+                    num_bytes_printed_on_fold_line += 1;
+                }
+                children.push(soft! {
+                    %Text &printed_num_lines
+                }.into_text_child());
+                num_bytes_printed_on_fold_line += printed_num_lines.len();
+                children.push(soft! {
+                    %Text " lines: "
+                }.into_text_child());
+                num_bytes_printed_on_fold_line += 8;
+                let mut has_passed_initial_blanks = false;
+                for chunk in self.line.chunks() {
+                    let to_print = if chunk.ends_with("\n") {
+                        &chunk[..chunk.len() - 1]
+                    } else {
+                        chunk
+                    };
+                    let to_print = match has_passed_initial_blanks {
+                        true => to_print,
+                        false => match regex!(r#"^ +"#).find(to_print) {
+                            None => {
+                                has_passed_initial_blanks = true;
+                                to_print
+                            }
+                            Some(initial_blanks) => {
+                                if initial_blanks.len() == to_print.len() {
+                                    continue;
+                                }
+                                has_passed_initial_blanks = true;
+                                &to_print[initial_blanks.len()..]
+                            }
+                        },
+                    };
+                    let remaining_bytes_on_line =
+                        usize::from(grid.width) - num_bytes_printed_on_fold_line;
+                    if to_print.len() > remaining_bytes_on_line {
+                        children.push(soft! {
+                            %Text &to_print[..remaining_bytes_on_line]
+                        }.into_text_child());
+                        break;
+                    }
+                    children.push(soft! {
+                        %Text to_print
+                    }.into_text_child());
+                    num_bytes_printed_on_fold_line += to_print.len();
+                }
+                children
+              }
+              color => known_colors()["dark_blue"]
         })
     }
 }
