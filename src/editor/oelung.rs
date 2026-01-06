@@ -14,76 +14,8 @@ use crate::{Editor, Fold};
 
 impl<'a> ComponentInterface for &'a Editor {
     fn render(&self, _grid: Grid) -> Result<Component<'_>, anyhow::Error> {
-        let num_relative_line_number_columns = self.num_relative_line_number_columns();
-
         Ok(soft! {
-            %FlexColumn
-              children => self.printed_line_chunks.iter().enumerate().map(|(printed_row_num, printed_line_chunks)| -> Result<_, anyhow::Error> {
-                  let printed_row_num = u16::try_from(printed_row_num).unwrap();
-                  let line_num = printed_line_chunks.start_line(&self.folds);
-                  let relative_line_number = soft! {
-                      %RelativeLineNumber::new(
-                          num_relative_line_number_columns,
-                          match self.cursor_position.row == printed_row_num {
-                              true => RelativeOrCurrentLineNum::Current(line_num),
-                              false => RelativeOrCurrentLineNum::Relative(
-                                    u16::try_from(
-                                        (i32::try_from(self.cursor_position.row).unwrap()
-                                            - i32::try_from(printed_row_num).unwrap())
-                                        .abs(),
-                                    )
-                                    .unwrap()
-                              ),
-                          }
-                      )
-                  };
-                  Ok(match printed_line_chunks {
-                      PrintedLineChunks::Fold(fold_index) => soft! {
-                          %Text children => [
-                            relative_line_number
-                            %Text " "
-                            %{
-                                let fold = &self.folds[*fold_index];
-                                FoldLine::new(
-                                    fold,
-                                    self.current_file.rope().line(fold.range.start),
-                                )
-                            }
-                          ]
-                      },
-                      PrintedLineChunks::Line(line_num, line_chunks) => {
-                          let line_num = *line_num;
-                          let line = self.current_file.rope().line(line_num);
-                          let chunks = line.chunks().collect::<SmallVec<_, 10>>();
-                          soft! {
-                              %Text children => {
-                                  [
-                                      Ok(relative_line_number.into_text_child()),
-                                      Ok(soft! {
-                                          %Text " "
-                                      }.into_text_child())
-                                  ].into_iter().chain(
-                                      line_chunks.into_iter().map(|line_chunk| -> Result<_, anyhow::Error> {
-                                          Ok(soft! {
-                                              %Text
-                                                text => &chunks[line_chunk.chunk_index][line_chunk.chunk_start_byte..line_chunk.chunk_end_byte]
-                                                maybe_color => line_chunk.highlight_type_index.map(|highlight_type_index| {
-                                                    self.tree_sitter_highlight_colors[highlight_type_index]
-                                                })
-                                          }.into_text_child())
-                                      })
-                                  ).collect::<Result<_, _>>()?
-                              }
-                          }
-                      }
-                  })
-              }).collect::<Result<_, _>>()?
-              overflow_y => hidden
-              cursor => %Cursor.Relative
-                x => {
-                    self.cursor_position.column + self.num_relative_line_number_columns() + 1
-                }
-                y => self.cursor_position.row
+            %EditorGrid::new(self)
         })
     }
 }
@@ -139,6 +71,92 @@ impl ReceiveEvent<Event> for Editor {
                 Ok(())
             }
         }
+    }
+}
+
+struct EditorGrid<'a> {
+    pub editor: &'a Editor,
+}
+
+impl<'a> EditorGrid<'a> {
+    pub fn new(editor: &'a Editor) -> Self {
+        Self { editor }
+    }
+}
+
+impl<'a> ComponentInterface for EditorGrid<'a> {
+    fn render(&self, _grid: Grid) -> Result<Component<'_>, anyhow::Error> {
+        let num_relative_line_number_columns = self.editor.num_relative_line_number_columns();
+
+        Ok(soft! {
+            %FlexColumn
+              children => self.editor.printed_line_chunks.iter().enumerate().map(|(printed_row_num, printed_line_chunks)| -> Result<_, anyhow::Error> {
+                  let printed_row_num = u16::try_from(printed_row_num).unwrap();
+                  let line_num = printed_line_chunks.start_line(&self.editor.folds);
+                  let relative_line_number = soft! {
+                      %RelativeLineNumber::new(
+                          num_relative_line_number_columns,
+                          match self.editor.cursor_position.row == printed_row_num {
+                              true => RelativeOrCurrentLineNum::Current(line_num),
+                              false => RelativeOrCurrentLineNum::Relative(
+                                    u16::try_from(
+                                        (i32::try_from(self.editor.cursor_position.row).unwrap()
+                                            - i32::try_from(printed_row_num).unwrap())
+                                        .abs(),
+                                    )
+                                    .unwrap()
+                              ),
+                          }
+                      )
+                  };
+                  Ok(match printed_line_chunks {
+                      PrintedLineChunks::Fold(fold_index) => soft! {
+                          %Text children => [
+                            relative_line_number
+                            %Text " "
+                            %{
+                                let fold = &self.editor.folds[*fold_index];
+                                FoldLine::new(
+                                    fold,
+                                    self.editor.current_file.rope().line(fold.range.start),
+                                )
+                            }
+                          ]
+                      },
+                      PrintedLineChunks::Line(line_num, line_chunks) => {
+                          let line_num = *line_num;
+                          let line = self.editor.current_file.rope().line(line_num);
+                          let chunks = line.chunks().collect::<SmallVec<_, 10>>();
+                          soft! {
+                              %Text children => {
+                                  [
+                                      Ok(relative_line_number.into_text_child()),
+                                      Ok(soft! {
+                                          %Text " "
+                                      }.into_text_child())
+                                  ].into_iter().chain(
+                                      line_chunks.into_iter().map(|line_chunk| -> Result<_, anyhow::Error> {
+                                          Ok(soft! {
+                                              %Text
+                                                text => &chunks[line_chunk.chunk_index][line_chunk.chunk_start_byte..line_chunk.chunk_end_byte]
+                                                maybe_color => line_chunk.highlight_type_index.map(|highlight_type_index| {
+                                                    self.editor.tree_sitter_highlight_colors[highlight_type_index]
+                                                })
+                                          }.into_text_child())
+                                      })
+                                  ).collect::<Result<_, _>>()?
+                              }
+                          }
+                      }
+                  })
+              }).collect::<Result<_, _>>()?
+              overflow_y => hidden
+              cursor => %Cursor.Relative
+                x => {
+                    self.editor.cursor_position.column + self.editor.num_relative_line_number_columns() + 1
+                }
+                y => self.editor.cursor_position.row
+        })
     }
 }
 
