@@ -300,7 +300,7 @@ pub struct OpenFileNamed {
     pub path: PathBuf,
 }
 
-type RowOrColumnNumber = u16;
+pub type RowOrColumnNumber = u16;
 
 #[derive(Default)]
 pub struct Position {

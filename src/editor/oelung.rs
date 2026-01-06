@@ -9,13 +9,29 @@ use smol_str::format_smolstr;
 use squalid::{_d, regex};
 use tracing::instrument;
 
-use super::{known_colors, num_columns_taken_up, Event, Mode, PrintedLineChunks};
-use crate::{Editor, Fold};
+use super::{
+    known_colors, num_columns_taken_up, Event, Mode, OpenFile, PrintedLineChunks, RowOrColumnNumber,
+};
+use crate::{Editor, Fold, LineNumber};
 
 impl<'a> ComponentInterface for &'a Editor {
     fn render(&self, _grid: Grid) -> Result<Component<'_>, anyhow::Error> {
+        let current_percent = ((f64::from(self.cursor_position.row)
+            / f64::from(u32::try_from(self.current_file.rope().len_lines()).unwrap()))
+            * 100.0) as u32;
         Ok(soft! {
-            %EditorGrid::new(self)
+            %FlexColumn children => [
+              %EditorGrid::new(self)
+              %StatusLine::new(
+                  current_percent,
+                  match &self.current_file {
+                      OpenFile::Anonymous(_) => None,
+                      OpenFile::Named(named) => Some(named.path.file_name().unwrap().to_str().unwrap()),
+                  },
+                  self.current_file.rope().len_lines(),
+                  self.cursor_position.column + 1,
+              )
+            ]
         })
     }
 }
@@ -328,5 +344,50 @@ impl<'a> ComponentInterface for FoldLine<'a> {
 
 enum RelativeOrCurrentLineNum {
     Relative(u16),
-    Current(usize),
+    Current(LineNumber),
+}
+
+struct StatusLine<'a> {
+    pub percent: u32,
+    pub file_name: Option<&'a str>,
+    pub num_lines: LineNumber,
+    pub column: RowOrColumnNumber,
+}
+
+impl<'a> StatusLine<'a> {
+    pub fn new(
+        percent: u32,
+        file_name: Option<&'a str>,
+        num_lines: LineNumber,
+        column: RowOrColumnNumber,
+    ) -> Self {
+        Self {
+            percent,
+            file_name,
+            num_lines,
+            column,
+        }
+    }
+}
+
+impl<'a> ComponentInterface for StatusLine<'a> {
+    fn render(&self, _grid: Grid) -> Result<Component<'_>, anyhow::Error> {
+        Ok(soft! {
+          %Text
+            children => [
+              %Text self.file_name.unwrap_or("[No Name]")
+              %Text " ["
+              %Text self.percent
+              %Text "%] "
+              %Text self.num_lines
+              %Text " lines |"
+              %Text self.column
+            ]
+            color => Color::AnsiValue(182)
+        })
+    }
+
+    fn height(&self) -> Option<u16> {
+        Some(1)
+    }
 }
