@@ -16,7 +16,7 @@ use crossterm::{
 use lsp_types::{ClientInfo, InitializeParams};
 use oelung::{soft, Component, ComponentInterface, Grid};
 use ropey::Rope;
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 use smol_str::format_smolstr;
 use squalid::{EverythingExt, _d, regex};
 use tokio::{fs, sync::mpsc::channel};
@@ -314,43 +314,6 @@ impl Editor {
             num_columns_taken_up(self.current_file.rope().len_lines()),
         )
     }
-
-    fn print_relative_line_number(
-        &mut self,
-        printed_row_num: RowOrColumnNumber,
-        num_relative_line_number_columns: RowOrColumnNumber,
-        line_number_to_show_if_cursor_line: LineNumber,
-    ) -> Result<(), anyhow::Error> {
-        self.stdout.queue(SetForegroundColor(Color::Rgb {
-            r: 122,
-            g: 122,
-            b: 122,
-        }))?;
-        if self.cursor_position.row == printed_row_num {
-            let num_columns_taken_up = num_columns_taken_up(line_number_to_show_if_cursor_line + 1);
-            self.stdout
-                .queue(Print(line_number_to_show_if_cursor_line + 1))?;
-            for _blank_column in 0..num_relative_line_number_columns - num_columns_taken_up {
-                self.stdout.queue(Print(" "))?;
-            }
-        } else {
-            let relative_line_number = usize::try_from(
-                (i32::try_from(self.cursor_position.row).unwrap()
-                    - i32::try_from(printed_row_num).unwrap())
-                .abs(),
-            )
-            .unwrap();
-            let num_columns_taken_up = num_columns_taken_up(relative_line_number);
-            for _blank_column in 0..num_relative_line_number_columns - num_columns_taken_up {
-                self.stdout.queue(Print(" "))?;
-            }
-            self.stdout.queue(Print(relative_line_number))?;
-        };
-        self.stdout.queue(ResetColor)?;
-        self.stdout.queue(Print(" "))?;
-
-        Ok(())
-    }
 }
 
 impl<'a> ComponentInterface for &'a Editor {
@@ -366,7 +329,17 @@ impl<'a> ComponentInterface for &'a Editor {
                       %RelativeLineNumber::new(
                           num_relative_line_number_columns,
                           line_num,
-                          self.cursor_position.row == printed_row_num,
+                          match self.cursor_position.row == printed_row_num {
+                              true => RelativeOrCurrentLineNum::Current(line_num),
+                              false => RelativeOrCurrentLineNum::Relative(
+                                    u16::try_from(
+                                        (i32::try_from(self.cursor_position.row).unwrap()
+                                            - i32::try_from(printed_row_num).unwrap())
+                                        .abs(),
+                                    )
+                                    .unwrap()
+                              ),
+                          }
                       )
                   };
                   match printed_line_chunks {
@@ -702,4 +675,88 @@ fn compute_printed_line_chunks(
             }
         }
     }).collect()
+}
+
+struct RelativeLineNumber {
+    pub num_columns: usize,
+    pub relative_or_current_line_num: RelativeOrCurrentLineNum,
+}
+
+impl RelativeLineNumber {
+    pub fn new(num_columns: usize, relative_or_current_line_num: RelativeOrCurrentLineNum) -> Self {
+        Self {
+            num_columns,
+            relative_or_current_line_num,
+        }
+    }
+}
+
+impl ComponentInterface for RelativeLineNumber {
+    fn render(&self, _grid: Grid) -> Result<Component<'_>, anyhow::Error> {
+        let color = Color::Rgb {
+            r: 122,
+            g: 122,
+            b: 122,
+        };
+        Ok(match self.relative_or_current_line_num {
+            RelativeOrCurrentLineNum::Current(line_num) => {
+                let line_num_to_show = line_num + 1;
+                let num_columns_taken_up = num_columns_taken_up(line_num_to_show);
+                let num_remaining_columns = self.num_columns - num_columns_taken_up;
+                soft! {
+                    %Text
+                      children => {
+                          [
+                              soft! {
+                                  %Text line_num_to_show
+                              }
+                          ].into_iter().chain(
+                              if num_remaining_columns > 0 {
+                                  smallvec![
+                                      soft! {
+                                          %Text {
+                                              " ".repeat(num_remaining_columns)
+                                          }
+                                      }
+                                  ]
+                              } else {
+                                  smallvec![]
+                              }
+                          ).collect()
+                      }
+                      color => color,
+                }
+            }
+            RelativeOrCurrentLineNum::Relative(relative_line_num) => {
+                let num_columns_taken_up = num_columns_taken_up(relative_line_num);
+                let num_remaining_columns = self.num_columns - num_columns_taken_up;
+                soft! {
+                    %Text
+                      children => {
+                          if num_remaining_columns > 0 {
+                              smallvec![
+                                  soft! {
+                                      %Text {
+                                          " ".repeat(num_remaining_columns)
+                                      }
+                                  }
+                              ]
+                          } else {
+                              smallvec![]
+                          }.chain([
+                              soft! {
+                                  %Text relative_line_num
+                              }
+                          ]).collect()
+                      }
+                      color => color
+                }
+            }
+        })
+    }
+}
+
+enum RelativeOrCurrentLineNum {
+    Relative(u16),
+    Current(u16),
 }
