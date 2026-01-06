@@ -44,7 +44,7 @@ pub async fn run_interactive_test(
 
     let mut editor = Editor::try_new(
         Args {
-            file_name: file_name.into(),
+            file_name: format!("fixtures/{file_name}").into(),
         },
         Box::new(EditorSender::from(sender.clone())),
     )
