@@ -1,34 +1,24 @@
 use std::cmp;
 use std::collections::HashMap;
-use std::io::{stdout, StdoutLock, Write};
 use std::path::PathBuf;
 use std::pin::Pin;
-use std::process;
 use std::sync::LazyLock;
 
 use anyhow;
-use crossterm::{
-    cursor,
-    event::{self, KeyCode},
-    style::{Color, Print, ResetColor, SetForegroundColor},
-    terminal::{size, Clear, ClearType},
-    ExecutableCommand, QueueableCommand,
-};
-use lsp_types::{ClientInfo, InitializeParams};
+use crossterm::{event, style::Color, terminal::size};
 use oelung::{soft, Component, ComponentInterface, Grid};
 use oelung_lantern::{is_simple_char_press, ReceiveEvent};
 use ropey::{Rope, RopeSlice};
 use smallvec::{smallvec, SmallVec};
 use smol_str::format_smolstr;
 use squalid::{EverythingExt, _d, regex};
-use tokio::{fs, sync::mpsc::channel};
+use tokio::fs;
 use tracing::instrument;
 
 use crate::{
-    calculate_folds, calculate_indents, run_rust_analyzer, strip_trailing_newline,
+    calculate_folds, calculate_indents, strip_trailing_newline,
     tree_sitter::{self as tree_sitter_mod, calculate_highlights},
-    Args, Fold, FoldIndex, IndentLevel, LineNumber, LspIncomingMessage, LspOutgoingMessage,
-    TreeSitterHighlight,
+    Args, Fold, FoldIndex, IndentLevel, LineNumber, TreeSitterHighlight,
 };
 
 pub struct Editor {

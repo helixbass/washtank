@@ -17,6 +17,8 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let (sender, mut receiver) = channel::<World>(100);
 
+    listen_to_crossterm_events(CrosstermSender::from(sender.clone()));
+
     let mut event_aggregator = EventAggregator::default();
     let mut editor = Editor::try_new(args).await?;
 
