@@ -1,11 +1,13 @@
+use std::pin::Pin;
+
 use clap::Parser;
 use crossterm::event::{Event, EventStream};
 use oelung::Renderer;
-use oelung_lantern::{generate_sender, mpsc::Sender};
+use oelung_lantern::{generate_sender, mpsc::Sender, ReceiveEvent};
 use tokio::sync::mpsc::channel;
 use tokio_stream::StreamExt;
 
-use washtank::{Args, Editor};
+use washtank::{Args, Editor, EventAggregator};
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -15,9 +17,27 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let (sender, mut receiver) = channel::<World>(100);
 
-    let editor = Editor::try_new(args).await?;
+    let mut event_aggregator = EventAggregator::default();
+    let mut editor = Editor::try_new(args).await?;
 
     render_screen(&mut renderer, &editor)?;
+
+    while let Some(world) = receiver.recv().await {
+        let mut queued_effects: Vec<Pin<Box<dyn Future<Output = ()> + Send + 'static>>> = vec![];
+        match world {
+            World::Crossterm(event) => {
+                let editor_event =
+                    event_aggregator.receive(&event, |future| queued_effects.push(future))?;
+                if let Some(editor_event) = editor_event {
+                    editor.receive(&editor_event, |future| queued_effects.push(future))?;
+                    render_screen(&mut renderer, &editor)?;
+                }
+            }
+        }
+        for effect in queued_effects {
+            tokio::spawn(effect);
+        }
+    }
 
     Ok(())
 }

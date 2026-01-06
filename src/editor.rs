@@ -756,7 +756,9 @@ enum RelativeOrCurrentLineNum {
     Current(u16),
 }
 
+#[derive(Default)]
 pub enum EventAggregator {
+    #[default]
     Initial,
     SawZ,
 }

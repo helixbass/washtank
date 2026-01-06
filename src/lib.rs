@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-mod editor;
+pub mod editor;
 mod fold;
 mod indent;
 mod jsonrpc;
@@ -12,7 +12,7 @@ mod lsp;
 mod terminal;
 pub mod tree_sitter;
 
-pub use editor::{Editor, PrintedLine, World};
+pub use editor::{Editor, EventAggregator, PrintedLine};
 pub use fold::{calculate_folds, Fold, FoldIndex};
 pub use indent::{calculate_indents, IndentLevel};
 pub use jsonrpc::{RequestMessage, RpcMessage};
