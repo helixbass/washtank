@@ -7,9 +7,12 @@ use tokio::{
     sync::mpsc::{Receiver, Sender},
 };
 
-use crate::{jsonrpc, RequestMessage, RpcMessage, World};
+use crate::{jsonrpc, RequestMessage, RpcMessage};
 
-pub fn run_rust_analyzer(sender: Sender<World>, mut receiver: Receiver<LspOutgoingMessage>) {
+pub fn run_rust_analyzer(
+    sender: Sender<LspIncomingMessage>,
+    mut receiver: Receiver<LspOutgoingMessage>,
+) {
     let mut command = Command::new("rust-analyzer");
     command.stdout(Stdio::piped());
     command.stdin(Stdio::piped());
@@ -28,9 +31,8 @@ pub fn run_rust_analyzer(sender: Sender<World>, mut receiver: Receiver<LspOutgoi
 
     tokio::spawn(async move {
         loop {
-            sender.send(World::Lsp(
-                LspIncomingMessage::try_from(reader.read_message().await.unwrap()).unwrap(),
-            ));
+            sender
+                .send(LspIncomingMessage::try_from(reader.read_message().await.unwrap()).unwrap());
         }
     });
 

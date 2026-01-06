@@ -25,8 +25,7 @@ use tokio::{fs, sync::mpsc::channel};
 use tracing::instrument;
 
 use crate::{
-    calculate_folds, calculate_indents, listen_to_crossterm_events, run_rust_analyzer,
-    strip_trailing_newline,
+    calculate_folds, calculate_indents, run_rust_analyzer, strip_trailing_newline,
     tree_sitter::{self as tree_sitter_mod, calculate_highlights},
     Args, Fold, FoldIndex, IndentLevel, LineNumber, LspIncomingMessage, LspOutgoingMessage,
     TreeSitterHighlight,
@@ -63,7 +62,7 @@ impl Editor {
         ));
         let current_file = OpenFile::Named(OpenFileNamed {
             rope,
-            path: file_name,
+            path: args.file_name,
         });
 
         let mut tree_sitter_parser = {
@@ -117,7 +116,6 @@ impl Editor {
             &printed_lines,
             current_file.rope(),
             &tree_sitter_highlights,
-            &folds,
         );
 
         // let (rust_analyzer_sender, rust_analyzer_receiver) = channel::<LspOutgoingMessage>(100);
@@ -249,7 +247,6 @@ impl Editor {
             &self.printed_lines,
             self.current_file.rope(),
             &self.current_tree_sitter_highlights,
-            &self.folds,
         );
     }
 }
@@ -288,8 +285,9 @@ impl<'a> ComponentInterface for &'a Editor {
                           ]
                       },
                       PrintedLineChunks::Line(line_num, line_chunks) => {
+                          let line_num = *line_num;
                           let line = self.current_file.rope().line(line_num);
-                          let chunks = line.chunks.collect::<SmallVec<_, 10>>();
+                          let chunks = line.chunks().collect::<SmallVec<_, 10>>();
                           soft! {
                               %Text children => {
                                   [
@@ -298,7 +296,7 @@ impl<'a> ComponentInterface for &'a Editor {
                                           %Text " "
                                       }
                                   ].into_iter().chain(
-                                      line_chunks.map(|line_chunk| {
+                                      line_chunks.into_iter().map(|line_chunk| {
                                           soft! {
                                               %Text
                                                 text => &chunks[line_chunk.chunk_index][line_chunk.chunk_start_byte..line_chunk.chunk_end_byte]
@@ -531,7 +529,6 @@ fn compute_printed_line_chunks(
     printed_lines: &[PrintedLine],
     rope: &Rope,
     tree_sitter_highlights: &[TreeSitterHighlight],
-    folds: &[Fold],
 ) -> Vec<PrintedLineChunks> {
     type IndexInHighlights = usize;
     #[derive(Copy, Clone)]
@@ -547,13 +544,14 @@ fn compute_printed_line_chunks(
     }
 
     let mut last_highlight: OpenHighlightOrProgress = _d();
-    printed_lines.map(|printed_line| {
+    printed_lines.into_iter().map(|printed_line| {
         match printed_line {
-            PrintedLine::Fold(fold_index) => PrintedLineChunks::Fold(fold_index),
+            PrintedLine::Fold(fold_index) => PrintedLineChunks::Fold(*fold_index),
             PrintedLine::Line(line_num) => {
+                let line_num = *line_num;
                 let line = rope.line(line_num);
 
-                let mut line_chunks = _d();
+                let mut line_chunks: LineChunks = _d();
                 let mut current_start_byte = rope.line_to_byte(line_num);
                 for (chunk_index, chunk) in line.chunks().enumerate() {
                     let next_start_byte = current_start_byte + chunk.len();
@@ -663,18 +661,19 @@ fn compute_printed_line_chunks(
                     }
                     current_start_byte = next_start_byte;
                 }
+                PrintedLineChunks::Line(line_num, line_chunks)
             }
         }
     }).collect()
 }
 
 struct RelativeLineNumber {
-    pub num_columns: usize,
+    pub num_columns: u16,
     pub relative_or_current_line_num: RelativeOrCurrentLineNum,
 }
 
 impl RelativeLineNumber {
-    pub fn new(num_columns: usize, relative_or_current_line_num: RelativeOrCurrentLineNum) -> Self {
+    pub fn new(num_columns: u16, relative_or_current_line_num: RelativeOrCurrentLineNum) -> Self {
         Self {
             num_columns,
             relative_or_current_line_num,
@@ -719,7 +718,7 @@ impl ComponentInterface for RelativeLineNumber {
                 }
             }
             RelativeOrCurrentLineNum::Relative(relative_line_num) => {
-                let num_columns_taken_up = num_columns_taken_up(relative_line_num);
+                let num_columns_taken_up = num_columns_taken_up(usize::from(relative_line_num));
                 let num_remaining_columns = self.num_columns - num_columns_taken_up;
                 soft! {
                     %Text
@@ -749,10 +748,10 @@ impl ComponentInterface for RelativeLineNumber {
 
 enum RelativeOrCurrentLineNum {
     Relative(u16),
-    Current(u16),
+    Current(usize),
 }
 
-#[derive(Default)]
+#[derive(Copy, Clone, Default)]
 pub enum EventAggregator {
     #[default]
     Initial,
@@ -760,13 +759,13 @@ pub enum EventAggregator {
 }
 
 impl ReceiveEvent<event::Event, Option<Event>> for EventAggregator {
-    #[instrument(level = "trace", skip(self, event, queue_effect))]
+    #[instrument(level = "trace", skip(self, event, _queue_effect))]
     fn receive<TQueueEffect: FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)>(
         &mut self,
         event: &event::Event,
-        queue_effect: TQueueEffect,
+        _queue_effect: TQueueEffect,
     ) -> Result<Option<Event>, anyhow::Error> {
-        match (self, event) {
+        match (*self, event) {
             (Self::Initial, event) if is_simple_char_press(event, 'j') => {
                 return Ok(Some(Event::MoveCursorDownNLines(1)));
             }
