@@ -7,7 +7,7 @@ use std::sync::LazyLock;
 
 use crossterm::{
     cursor,
-    event::{Event, KeyCode},
+    event::{self, KeyCode},
     style::{Color, Print, ResetColor, SetForegroundColor},
     terminal::{size, Clear, ClearType},
     ExecutableCommand, QueueableCommand,
@@ -19,11 +19,11 @@ use squalid::{EverythingExt, _d, regex};
 use tokio::{fs, sync::mpsc::channel};
 
 use crate::{
-    listen_to_crossterm_events, run_rust_analyzer, strip_trailing_newline, Args, Fold, FoldIndex,
-    IndentLevel, LineNumber, LspIncomingMessage, LspOutgoingMessage, TreeSitterHighlight,
+    calculate_folds, calculate_indents, listen_to_crossterm_events, run_rust_analyzer,
+    strip_trailing_newline,
     tree_sitter::{self as tree_sitter_mod, calculate_highlights},
-    calculate_folds,
-    calculate_indents,
+    Args, Fold, FoldIndex, IndentLevel, LineNumber, LspIncomingMessage, LspOutgoingMessage,
+    TreeSitterHighlight,
 };
 
 pub struct Editor {
@@ -33,10 +33,10 @@ pub struct Editor {
     /// position
     pub cursor_position: Position,
     pub size: Size,
-    pub top_line: Option<PrintedLine>,
-    pub printed_lines: Option<Vec<PrintedLine>>,
+    pub top_line: PrintedLine,
+    pub printed_lines: Vec<PrintedLine>,
     pub tree_sitter_parser: tree_sitter::Parser,
-    pub current_tree_sitter_tree: Option<tree_sitter::Tree>,
+    pub current_tree_sitter_tree: tree_sitter::Tree,
     pub current_tree_sitter_highlights: Vec<TreeSitterHighlight>,
     // pub tree_sitter_highlighter: Highlighter,
     // pub tree_sitter_highlight_configuration: HighlightConfiguration,
@@ -44,9 +44,9 @@ pub struct Editor {
     pub tree_sitter_highlight_query: tree_sitter::Query,
     pub tree_sitter_highlight_colors: Vec<Color>,
     pub current_file_shift_width: usize,
-    pub current_file_indents: Option<Vec<IndentLevel>>,
-    pub folds: Option<Vec<Fold>>,
-    pub max_folds: Option<Vec<Fold>>,
+    pub current_file_indents: Vec<IndentLevel>,
+    pub folds: Vec<Fold>,
+    pub max_folds: Vec<Fold>,
 }
 
 impl Editor {
@@ -66,7 +66,8 @@ impl Editor {
                 .unwrap();
             parser
         };
-        let current_tree_sitter_tree = tree_sitter_mod::parse_from_scratch(current_file.rope(), &mut tree_sitter_parser);
+        let current_tree_sitter_tree =
+            tree_sitter_mod::parse_from_scratch(current_file.rope(), &mut tree_sitter_parser);
         let tree_sitter_highlight_query = tree_sitter::Query::new(
             &tree_sitter_rust::LANGUAGE.into(),
             r#"
@@ -82,55 +83,37 @@ impl Editor {
         )?;
 
         let current_file_shift_width = 4;
-        let current_file_indents = calculate_indents(
-            current_file.rope(),
-            current_file_shift_width,
-        );
+        let current_file_indents = calculate_indents(current_file.rope(), current_file_shift_width);
 
         let folds = calculate_folds(&current_file_indents);
         let max_folds = folds.clone();
 
-        let top_line =
-            if matches!(
-                folds.iter().next(),
-                Some(fold) if fold.range.start == 0
-            ) {
-                PrintedLine::Fold(0)
-            } else {
-                PrintedLine::Line(0)
-            };
+        let top_line = if matches!(
+            folds.iter().next(),
+            Some(fold) if fold.range.start == 0
+        ) {
+            PrintedLine::Fold(0)
+        } else {
+            PrintedLine::Line(0)
+        };
         let size = size()?.thrush(|(columns, rows)| Size {
             height: rows,
             width: columns,
         });
-        let printed_lines = compute_printed_lines(
-            current_file.rope(),
-            top_line,
-            &folds,
-            size.height,
-        );
-        self.rerender_screen()?;
+        let printed_lines =
+            compute_printed_lines(current_file.rope().len_lines(), top_line, &folds, size.height);
+        let printed_line_chunks = compute_printed_line_chunks(&printed_lines, current_file.rope(), &tree_sitter_highlights, &folds);
 
-        Ok(())
         // let tree_sitter_highlight_names = vec!["comment", "string_literal"];
         Ok(Self {
-            current_file: _d(),
+            current_file,
             cursor_position: _d(),
-            size: size()?.thrush(|(columns, rows)| Size {
-                height: rows,
-                width: columns,
-            }),
-            top_line: _d(),
-            printed_lines: _d(),
-            tree_sitter_parser: {
-                let mut parser = tree_sitter::Parser::new();
-                parser
-                    .set_language(&tree_sitter_rust::LANGUAGE.into())
-                    .unwrap();
-                parser
-            },
-            current_tree_sitter_tree: _d(),
-            current_tree_sitter_highlights: _d(),
+            size,
+            top_line,
+            printed_lines,
+            tree_sitter_parser,
+            current_tree_sitter_tree,
+            current_tree_sitter_highlights: tree_sitter_highlights,
             // tree_sitter_highlighter: _d(),
             // tree_sitter_highlight_configuration: {
             //     let mut highlight_configuration = HighlightConfiguration::new(
@@ -144,23 +127,16 @@ impl Editor {
             //     highlight_configuration
             // },
             // tree_sitter_highlight_names,
-            tree_sitter_highlight_query: tree_sitter::Query::new(
-                &tree_sitter_rust::LANGUAGE.into(),
-                r#"
-                    (line_comment) @line_comment
-                    (block_comment) @block_comment
-                    (string_literal) @string_literal
-                "#,
-            )?,
+            tree_sitter_highlight_query,
             tree_sitter_highlight_colors: vec![
                 known_colors()["dark_blue"],
                 known_colors()["dark_blue"],
                 known_colors()["yellow"],
             ],
-            current_file_shift_width: 4,
-            current_file_indents: _d(),
-            folds: _d(),
-            max_folds: _d(),
+            current_file_shift_width,
+            current_file_indents,
+            folds,
+            max_folds,
         })
     }
 
@@ -232,34 +208,6 @@ impl Editor {
                 _ => unimplemented!(),
             }
         }
-
-        Ok(())
-    }
-
-    async fn open_file(&mut self, file_name: PathBuf) -> Result<(), anyhow::Error> {
-        let rope = Rope::from_str(strip_trailing_newline(
-            &fs::read_to_string(&file_name).await?,
-        ));
-        self.current_file = OpenFile::Named(OpenFileNamed {
-            rope,
-            path: file_name,
-        });
-
-        self.current_tree_sitter_tree = Some(self.parse_tree_sitter_from_scratch());
-
-        self.apply_initial_folds();
-        self.top_line = Some(
-            if matches!(
-                self.folds.as_ref().unwrap().into_iter().next(),
-                Some(fold) if fold.range.start == 0
-            ) {
-                PrintedLine::Fold(0)
-            } else {
-                PrintedLine::Line(0)
-            },
-        );
-        self.compute_printed_lines();
-        self.rerender_screen()?;
 
         Ok(())
     }
@@ -353,15 +301,53 @@ impl Editor {
         )
     }
 
-    pub fn rerender_screen(&mut self) -> Result<(), anyhow::Error> {
-        self.renderer.render(soft! {});
+    fn print_relative_line_number(
+        &mut self,
+        printed_row_num: RowOrColumnNumber,
+        num_relative_line_number_columns: RowOrColumnNumber,
+        line_number_to_show_if_cursor_line: LineNumber,
+    ) -> Result<(), anyhow::Error> {
+        self.stdout.queue(SetForegroundColor(Color::Rgb {
+            r: 122,
+            g: 122,
+            b: 122,
+        }))?;
+        if self.cursor_position.row == printed_row_num {
+            let num_columns_taken_up = num_columns_taken_up(line_number_to_show_if_cursor_line + 1);
+            self.stdout
+                .queue(Print(line_number_to_show_if_cursor_line + 1))?;
+            for _blank_column in 0..num_relative_line_number_columns - num_columns_taken_up {
+                self.stdout.queue(Print(" "))?;
+            }
+        } else {
+            let relative_line_number = usize::try_from(
+                (i32::try_from(self.cursor_position.row).unwrap()
+                    - i32::try_from(printed_row_num).unwrap())
+                .abs(),
+            )
+            .unwrap();
+            let num_columns_taken_up = num_columns_taken_up(relative_line_number);
+            for _blank_column in 0..num_relative_line_number_columns - num_columns_taken_up {
+                self.stdout.queue(Print(" "))?;
+            }
+            self.stdout.queue(Print(relative_line_number))?;
+        };
+        self.stdout.queue(ResetColor)?;
+        self.stdout.queue(Print(" "))?;
 
+        Ok(())
+    }
+}
+
+impl<'a> ComponentInterface for &'a Editor {
+    fn render(&self, _grid: Grid) -> Result<Component<'_>, anyhow::Error> {
         let num_lines = self.current_file.rope().len_lines();
         let top_line = self
             .top_line
-            .unwrap()
-            .start_line(self.folds.as_ref().unwrap());
+            .start_line(&self.folds);
         assert!(top_line <= num_lines - 1);
+
+        let flex_column = FlexColumnBuilder::default();
 
         let num_relative_line_number_columns = self.num_relative_line_number_columns();
         type IndexInHighlights = usize;
@@ -378,13 +364,13 @@ impl Editor {
         }
 
         let mut last_highlight: OpenHighlightOrProgress = _d();
-        for printed_row_num in 0..self.printed_lines.as_ref().unwrap().len() {
-            let printed_line = self.printed_lines.as_ref().unwrap()[printed_row_num];
+        for printed_row_num in 0..self.printed_lines.len() {
+            let printed_line = &self.printed_lines[printed_row_num];
             let printed_row_num = u16::try_from(printed_row_num).unwrap();
             let current_line_num = match printed_line {
                 PrintedLine::Line(line) => line,
                 PrintedLine::Fold(fold_index) => {
-                    self.folds.as_ref().unwrap()[fold_index].range.start
+                    self.folds[fold_index].range.start
                 }
             };
             self.print_relative_line_number(
@@ -549,41 +535,7 @@ impl Editor {
         Ok(())
     }
 
-    fn print_relative_line_number(
-        &mut self,
-        printed_row_num: RowOrColumnNumber,
-        num_relative_line_number_columns: RowOrColumnNumber,
-        line_number_to_show_if_cursor_line: LineNumber,
-    ) -> Result<(), anyhow::Error> {
-        self.stdout.queue(SetForegroundColor(Color::Rgb {
-            r: 122,
-            g: 122,
-            b: 122,
-        }))?;
-        if self.cursor_position.row == printed_row_num {
-            let num_columns_taken_up = num_columns_taken_up(line_number_to_show_if_cursor_line + 1);
-            self.stdout
-                .queue(Print(line_number_to_show_if_cursor_line + 1))?;
-            for _blank_column in 0..num_relative_line_number_columns - num_columns_taken_up {
-                self.stdout.queue(Print(" "))?;
-            }
-        } else {
-            let relative_line_number = usize::try_from(
-                (i32::try_from(self.cursor_position.row).unwrap()
-                    - i32::try_from(printed_row_num).unwrap())
-                .abs(),
-            )
-            .unwrap();
-            let num_columns_taken_up = num_columns_taken_up(relative_line_number);
-            for _blank_column in 0..num_relative_line_number_columns - num_columns_taken_up {
-                self.stdout.queue(Print(" "))?;
-            }
-            self.stdout.queue(Print(relative_line_number))?;
-        };
-        self.stdout.queue(ResetColor)?;
-        self.stdout.queue(Print(" "))?;
 
-        Ok(())
     }
 }
 
@@ -685,19 +637,22 @@ fn known_colors() -> &'static HashMap<String, Color> {
     &*KNOWN_COLORS
 }
 
-pub enum World {
-    Crossterm(Event),
+pub enum Event {
+    Crossterm(event::Event),
     Lsp(LspIncomingMessage),
 }
 
-fn compute_printed_lines(rope: &Rope, top_line: PrintedLine, folds: &[Fold], height: u16) -> Vec<PrintedLine> {
-    let num_lines = rope.len_lines();
+fn compute_printed_lines(
+    num_lines: usize,
+    top_line: PrintedLine,
+    folds: &[Fold],
+    height: u16,
+) -> Vec<PrintedLine> {
     let top_line = top_line.start_line(folds);
     assert!(top_line <= num_lines - 1);
 
     let mut current_line_num = top_line;
-    let mut next_eligible_fold_index =
-        folds
+    let mut next_eligible_fold_index = folds
         .into_iter()
         .position(|fold| fold.range.start >= top_line);
     let mut ret: Vec<PrintedLine> = _d();
@@ -708,16 +663,11 @@ fn compute_printed_lines(rope: &Rope, top_line: PrintedLine, folds: &[Fold], hei
 
         if let Some(next_eligible_fold_index_yes) =
             next_eligible_fold_index.filter(|&next_eligible_fold_index| {
-                folds[next_eligible_fold_index]
-                    .range
-                    .start
-                    == current_line_num
+                folds[next_eligible_fold_index].range.start == current_line_num
             })
         {
             ret.push(PrintedLine::Fold(next_eligible_fold_index_yes));
-            current_line_num = folds[next_eligible_fold_index_yes]
-                .range
-                .end;
+            current_line_num = folds[next_eligible_fold_index_yes].range.end;
             if next_eligible_fold_index_yes < folds.len() - 1 {
                 next_eligible_fold_index = Some(next_eligible_fold_index_yes + 1);
             }
@@ -729,3 +679,157 @@ fn compute_printed_lines(rope: &Rope, top_line: PrintedLine, folds: &[Fold], hei
     ret
 }
 
+enum PrintedLineChunks {
+    Line(LineNumber, LineChunks),
+    Fold(FoldIndex),
+}
+
+type LineChunks = SmallVec<LineChunk, 10>;
+
+struct LineChunk {
+    pub chunk_index: usize,
+    pub chunk_start_byte: usize,
+    pub chunk_end_byte: usize,
+    pub highlight_type_index: Option<usize>,
+}
+
+fn compute_printed_line_chunks(
+    printed_lines: &[PrintedLine],
+    rope: &Rope,
+    tree_sitter_highlights: &[TreeSitterHighlight],
+    folds: &[Fold],
+) -> Vec<PrintedLineChunks> {
+    type IndexInHighlights = usize;
+    #[derive(Copy, Clone)]
+    enum OpenHighlightOrProgress {
+        OpenHighlight(IndexInHighlights),
+        Next(IndexInHighlights),
+    }
+
+    impl Default for OpenHighlightOrProgress {
+        fn default() -> Self {
+            Self::Next(0)
+        }
+    }
+
+    let mut last_highlight: OpenHighlightOrProgress = _d();
+    printed_lines.map(|printed_line| {
+        match printed_line {
+            PrintedLine::Fold(fold_index) => PrintedLineChunks::Fold(fold_index),
+            PrintedLine::Line(line_num) => {
+                let line = rope.line(line_num);
+
+                let mut line_chunks = _d();
+                let mut current_start_byte = rope.line_to_byte(line_num);
+                for (chunk_index, chunk) in line.chunks().enumerate() {
+                    let next_start_byte = current_start_byte + chunk.len();
+                    let mut bytes_printed = 0;
+                    if let OpenHighlightOrProgress::OpenHighlight(index_in_highlights) =
+                        last_highlight
+                    {
+                        let open_highlight = tree_sitter_highlights[index_in_highlights];
+                        if open_highlight.end_byte < next_start_byte {
+                            let num_bytes_to_print = open_highlight.end_byte - current_start_byte;
+                            line_chunks.push(LineChunk {
+                                chunk_index,
+                                chunk_start_byte: 0,
+                                chunk_end_byte: num_bytes_to_print,
+                                highlight_type_index: Some(open_highlight.highlight_type_index),
+                            });
+                            bytes_printed += num_bytes_to_print;
+                            last_highlight =
+                                OpenHighlightOrProgress::Next(index_in_highlights + 1);
+                        } else {
+                            line_chunks.push(LineChunk {
+                                chunk_index,
+                                chunk_start_byte: 0,
+                                chunk_end_byte: if chunk.ends_with("\n") {
+                                    chunk.len() - 1
+                                } else {
+                                    chunk.len()
+                                },
+                                highlight_type_index: Some(open_highlight.highlight_type_index),
+                            });
+                            current_start_byte = next_start_byte;
+                            continue;
+                        }
+                    }
+                    'more_highlights: while !matches!(
+                        last_highlight,
+                        OpenHighlightOrProgress::Next(last_highlight_next)
+                            if last_highlight_next >= tree_sitter_highlights.len()
+                                || tree_sitter_highlights[last_highlight_next].start_byte >= next_start_byte
+                    ) && !matches!(
+                        last_highlight,
+                        OpenHighlightOrProgress::OpenHighlight(last_highlight_open)
+                            if tree_sitter_highlights[last_highlight_open].end_byte >= next_start_byte
+                    ) {
+                        match last_highlight {
+                            OpenHighlightOrProgress::OpenHighlight(last_highlight_open) => {
+                                let open_highlight = tree_sitter_highlights[last_highlight_open];
+                                let num_bytes_to_print = open_highlight.end_byte
+                                    - (current_start_byte + bytes_printed);
+                                line_chunks.push(LineChunk {
+                                    chunk_index,
+                                    chunk_start_byte: bytes_printed,
+                                    chunk_end_byte: bytes_printed + num_bytes_to_print,
+                                    highlight_type_index: Some(open_highlight.highlight_type_index),
+                                });
+                                bytes_printed += num_bytes_to_print;
+                                last_highlight =
+                                    OpenHighlightOrProgress::Next(last_highlight_open + 1);
+                            }
+                            OpenHighlightOrProgress::Next(last_highlight_next) => {
+                                let next_highlight = tree_sitter_highlights[last_highlight_next];
+                                while next_highlight.end_byte <= current_start_byte {
+                                    last_highlight =
+                                        OpenHighlightOrProgress::Next(last_highlight_next + 1);
+                                    continue 'more_highlights;
+                                }
+                                let num_bytes_to_print = next_highlight.start_byte
+                                    - (current_start_byte + bytes_printed);
+                                line_chunks.push(LineChunk {
+                                    chunk_index,
+                                    chunk_start_byte: bytes_printed,
+                                    chunk_end_byte: bytes_printed + num_bytes_to_print,
+                                    highlight_type_index: None,
+                                });
+                                bytes_printed += num_bytes_to_print;
+                                last_highlight =
+                                    OpenHighlightOrProgress::OpenHighlight(last_highlight_next);
+                            }
+                        }
+                    }
+                    if chunk.ends_with("\n") {
+                        if bytes_printed < chunk.len() - 1 {
+                            line_chunks.push(LineChunk {
+                                chunk_index,
+                                chunk_start_byte: bytes_printed,
+                                chunk_end_byte: chunk.len() - 1,
+                                highlight_type_index: match last_highlight {
+                                    OpenHighlightOrProgress::OpenHighlight(last_highlight_open) =>
+                                        Some(tree_sitter_highlights[last_highlight_open].highlight_type_index),
+                                    _ => None
+                                }
+                            });
+                        }
+                    } else {
+                        if bytes_printed < chunk.len() {
+                            line_chunks.push(LineChunk {
+                                chunk_index,
+                                chunk_start_byte: bytes_printed,
+                                chunk_end_byte: chunk.len(),
+                                highlight_type_index: match last_highlight {
+                                    OpenHighlightOrProgress::OpenHighlight(last_highlight_open) =>
+                                        Some(tree_sitter_highlights[last_highlight_open].highlight_type_index),
+                                    _ => None
+                                }
+                            });
+                        }
+                    }
+                    current_start_byte = next_start_byte;
+                }
+            }
+        }
+    }).collect()
+}
