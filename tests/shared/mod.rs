@@ -1,8 +1,9 @@
+use std::cell::RefCell;
 use std::pin::Pin;
 use std::rc::Rc;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-use oelung::{soft, BackendMemory, Renderer, RendererBuilder};
+use oelung::{soft, BackendMemory, Renderer, RendererBuilder, Size};
 use oelung_lantern::{generate_sender, mpsc::Sender, ReceiveEvent};
 use tokio::sync::mpsc::channel;
 
@@ -13,7 +14,10 @@ pub async fn run_interactive_test(
     input: &str,
     expected_screen_state: &str,
 ) -> Result<(), anyhow::Error> {
-    let memory_backend = Rc::new(BackendMemory::new(24, 80));
+    let memory_backend = Rc::new(RefCell::new(BackendMemory::new(Size {
+        height: 24,
+        width: 80,
+    })));
 
     let mut renderer = RendererBuilder::default()
         .backend(memory_backend.clone())
@@ -23,6 +27,7 @@ pub async fn run_interactive_test(
 
     tokio::spawn({
         let sender = CrosstermSender::from(sender.clone());
+        let input = input.to_owned();
         async move {
             for ch in input.chars() {
                 sender
@@ -67,7 +72,7 @@ pub async fn run_interactive_test(
         }
     }
 
-    assert_expected_screen_contents(expected_screen_state, &memory_backend);
+    assert_expected_screen_contents(&memory_backend.borrow(), expected_screen_state);
 
     Ok(())
 }
@@ -95,7 +100,7 @@ fn assert_expected_screen_contents(memory_backend: &BackendMemory, expected_scre
             .grid
             .iter()
             .map(|row| { row.into_iter().map(|cell| cell.content).collect::<String>() })
-            .collect(),
+            .collect::<Vec<_>>(),
         expected_screen_state.text_contents
     );
 }

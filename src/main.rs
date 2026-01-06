@@ -2,7 +2,7 @@ use std::pin::Pin;
 
 use clap::Parser;
 use crossterm::event::{Event, EventStream};
-use oelung::{soft, Renderer};
+use oelung::{soft, Renderer, RendererBuilder};
 use oelung_lantern::{generate_sender, mpsc::Sender, ReceiveEvent};
 use tokio::sync::mpsc::channel;
 use tokio_stream::StreamExt;
@@ -13,7 +13,7 @@ use washtank::{editor, Args, Editor, EventAggregator};
 async fn main() -> Result<(), anyhow::Error> {
     let args = Args::parse();
 
-    let mut renderer = Renderer::try_new()?;
+    let mut renderer = RendererBuilder::default().build()?;
 
     let (sender, mut receiver) = channel::<World>(100);
 

@@ -4,10 +4,10 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::LazyLock;
 
+use ::oelung::{RowOrColumnNumber, Size};
 use anyhow;
 use crossterm::{style::Color, terminal::size};
 use futures::future::FutureExt;
-use oelung::{RowOrColumnNumber, Size};
 use oelung_lantern::mpsc::Sender;
 use ropey::Rope;
 use smallvec::SmallVec;
