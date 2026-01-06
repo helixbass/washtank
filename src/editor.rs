@@ -257,7 +257,7 @@ impl<'a> ComponentInterface for &'a Editor {
 
         Ok(soft! {
             %FlexColumn
-              children => self.printed_line_chunks.iter().enumerate().map(|(printed_row_num, printed_line_chunks)| {
+              children => self.printed_line_chunks.iter().enumerate().map(|(printed_row_num, printed_line_chunks)| -> Result<_, anyhow::Error> {
                   let printed_row_num = u16::try_from(printed_row_num).unwrap();
                   let line_num = printed_line_chunks.start_line(&self.folds);
                   let relative_line_number = soft! {
@@ -276,12 +276,12 @@ impl<'a> ComponentInterface for &'a Editor {
                           }
                       )
                   };
-                  match printed_line_chunks {
+                  Ok(match printed_line_chunks {
                       PrintedLineChunks::Fold(fold_index) => soft! {
                           %Text children => [
                             relative_line_number
                             %Text " "
-                            %FoldLine::new(&self.folds[fold_index])
+                            %FoldLine::new(&self.folds[*fold_index])
                           ]
                       },
                       PrintedLineChunks::Line(line_num, line_chunks) => {
@@ -309,8 +309,8 @@ impl<'a> ComponentInterface for &'a Editor {
                               }
                           }
                       }
-                  }
-              }).collect()
+                  })
+              }).collect::<Result<_, _>>()?
               overflow_y => hidden
               cursor => %Cursor.Relative
                 x => self.cursor_position.row
