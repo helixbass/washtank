@@ -11,7 +11,6 @@ use crossterm::{
     terminal::size,
 };
 use futures::future::FutureExt;
-use oelung::{soft, Component, ComponentInterface, Grid};
 use oelung_lantern::{
     is_any_simple_char_press, is_simple_char_press, is_simple_key_press, mpsc::Sender, ReceiveEvent,
 };
@@ -27,6 +26,11 @@ use crate::{
     tree_sitter::{self as tree_sitter_mod, calculate_highlights},
     Args, Fold, FoldIndex, IndentLevel, LineNumber, TreeSitterHighlight,
 };
+
+mod aggregate;
+mod oelung;
+
+pub use aggregate::EventAggregator;
 
 pub struct Editor {
     pub current_file: OpenFile,
@@ -274,136 +278,6 @@ impl Editor {
     }
 }
 
-impl<'a> ComponentInterface for &'a Editor {
-    fn render(&self, _grid: Grid) -> Result<Component<'_>, anyhow::Error> {
-        let num_relative_line_number_columns = self.num_relative_line_number_columns();
-
-        Ok(soft! {
-            %FlexColumn
-              children => self.printed_line_chunks.iter().enumerate().map(|(printed_row_num, printed_line_chunks)| -> Result<_, anyhow::Error> {
-                  let printed_row_num = u16::try_from(printed_row_num).unwrap();
-                  let line_num = printed_line_chunks.start_line(&self.folds);
-                  let relative_line_number = soft! {
-                      %RelativeLineNumber::new(
-                          num_relative_line_number_columns,
-                          match self.cursor_position.row == printed_row_num {
-                              true => RelativeOrCurrentLineNum::Current(line_num),
-                              false => RelativeOrCurrentLineNum::Relative(
-                                    u16::try_from(
-                                        (i32::try_from(self.cursor_position.row).unwrap()
-                                            - i32::try_from(printed_row_num).unwrap())
-                                        .abs(),
-                                    )
-                                    .unwrap()
-                              ),
-                          }
-                      )
-                  };
-                  Ok(match printed_line_chunks {
-                      PrintedLineChunks::Fold(fold_index) => soft! {
-                          %Text children => [
-                            relative_line_number
-                            %Text " "
-                            %{
-                                let fold = &self.folds[*fold_index];
-                                FoldLine::new(
-                                    fold,
-                                    self.current_file.rope().line(fold.range.start),
-                                )
-                            }
-                          ]
-                      },
-                      PrintedLineChunks::Line(line_num, line_chunks) => {
-                          let line_num = *line_num;
-                          let line = self.current_file.rope().line(line_num);
-                          let chunks = line.chunks().collect::<SmallVec<_, 10>>();
-                          soft! {
-                              %Text children => {
-                                  [
-                                      Ok(relative_line_number.into_text_child()),
-                                      Ok(soft! {
-                                          %Text " "
-                                      }.into_text_child())
-                                  ].into_iter().chain(
-                                      line_chunks.into_iter().map(|line_chunk| -> Result<_, anyhow::Error> {
-                                          Ok(soft! {
-                                              %Text
-                                                text => &chunks[line_chunk.chunk_index][line_chunk.chunk_start_byte..line_chunk.chunk_end_byte]
-                                                maybe_color => line_chunk.highlight_type_index.map(|highlight_type_index| {
-                                                    self.tree_sitter_highlight_colors[highlight_type_index]
-                                                })
-                                          }.into_text_child())
-                                      })
-                                  ).collect::<Result<_, _>>()?
-                              }
-                          }
-                      }
-                  })
-              }).collect::<Result<_, _>>()?
-              overflow_y => hidden
-              cursor => %Cursor.Relative
-                x => {
-                    self.cursor_position.column + self.num_relative_line_number_columns() + 1
-                }
-                y => self.cursor_position.row
-        })
-    }
-}
-
-impl ReceiveEvent<Event> for Editor {
-    #[instrument(level = "trace", skip(self, event, queue_effect))]
-    fn receive<TQueueEffect: FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)>(
-        &mut self,
-        event: &Event,
-        queue_effect: TQueueEffect,
-    ) -> Result<(), anyhow::Error> {
-        match event {
-            Event::MoveCursorDownNLines(n) => {
-                assert_eq!(*n, 1);
-                self.maybe_move_cursor_down_one_line();
-                Ok(())
-            }
-            Event::MoveCursorUpNLines(n) => {
-                assert_eq!(*n, 1);
-                self.maybe_move_cursor_up_one_line();
-                Ok(())
-            }
-            Event::FullyOpenFoldUnderCursor => {
-                self.fully_open_fold_under_cursor();
-                Ok(())
-            }
-            Event::OpenFoldUnderCursorOneLevel => {
-                self.open_fold_under_cursor_one_level();
-                Ok(())
-            }
-            Event::FullyCloseFoldUnderCursor => {
-                self.fully_close_fold_under_cursor();
-                Ok(())
-            }
-            Event::CloseFoldUnderCursorOneLevel => {
-                self.close_fold_under_cursor_one_level();
-                Ok(())
-            }
-            Event::GoIntoNormalMode => {
-                self.mode = Mode::Normal;
-                Ok(())
-            }
-            Event::GoIntoExCommandMode => {
-                self.mode = Mode::ExCommand(_d());
-                Ok(())
-            }
-            Event::ExCommandChar(ch) => {
-                self.mode.as_ex_command_mut().push(*ch);
-                Ok(())
-            }
-            Event::FinishExCommand => {
-                self.finish_ex_command(queue_effect);
-                Ok(())
-            }
-        }
-    }
-}
-
 pub enum OpenFile {
     Anonymous(OpenFileAnonymous),
     Named(OpenFileNamed),
@@ -462,7 +336,7 @@ impl PrintedLine {
     }
 }
 
-fn num_columns_taken_up(num: usize) -> RowOrColumnNumber {
+pub(crate) fn num_columns_taken_up(num: usize) -> RowOrColumnNumber {
     if num >= 10000 {
         5
     } else if num >= 1000 {
@@ -476,7 +350,7 @@ fn num_columns_taken_up(num: usize) -> RowOrColumnNumber {
     }
 }
 
-fn known_colors() -> &'static HashMap<String, Color> {
+pub(crate) fn known_colors() -> &'static HashMap<String, Color> {
     static KNOWN_COLORS: LazyLock<HashMap<String, Color>> = LazyLock::new(|| {
         [
             (
@@ -741,242 +615,7 @@ impl Mode {
     }
 }
 
-struct RelativeLineNumber {
-    pub num_columns: u16,
-    pub relative_or_current_line_num: RelativeOrCurrentLineNum,
-}
-
-impl RelativeLineNumber {
-    pub fn new(num_columns: u16, relative_or_current_line_num: RelativeOrCurrentLineNum) -> Self {
-        Self {
-            num_columns,
-            relative_or_current_line_num,
-        }
-    }
-}
-
-impl ComponentInterface for RelativeLineNumber {
-    fn render(&self, _grid: Grid) -> Result<Component<'_>, anyhow::Error> {
-        let color = Color::Rgb {
-            r: 122,
-            g: 122,
-            b: 122,
-        };
-        Ok(match self.relative_or_current_line_num {
-            RelativeOrCurrentLineNum::Current(line_num) => {
-                let line_num_to_show = line_num + 1;
-                let num_columns_taken_up = num_columns_taken_up(line_num_to_show);
-                let num_remaining_columns = self.num_columns - num_columns_taken_up;
-                soft! {
-                    %Text
-                      children => {
-                          [
-                              soft! {
-                                  %Text line_num_to_show
-                              }.into_text_child()
-                          ].into_iter().chain(
-                              if num_remaining_columns > 0 {
-                                  smallvec![
-                                      soft! {
-                                          %Text {
-                                              " ".repeat(usize::from(num_remaining_columns))
-                                          }
-                                      }.into_text_child()
-                                  ]
-                              } else {
-                                  SmallVec::<_, 1>::default()
-                              }
-                          ).collect()
-                      }
-                      color => color
-                }
-            }
-            RelativeOrCurrentLineNum::Relative(relative_line_num) => {
-                let num_columns_taken_up = num_columns_taken_up(usize::from(relative_line_num));
-                let num_remaining_columns = self.num_columns - num_columns_taken_up;
-                soft! {
-                    %Text
-                      children => {
-                          if num_remaining_columns > 0 {
-                              smallvec![
-                                  soft! {
-                                      %Text {
-                                          " ".repeat(usize::from(num_remaining_columns))
-                                      }
-                                  }.into_text_child()
-                              ]
-                          } else {
-                              SmallVec::<_, 1>::default()
-                          }.into_iter().chain([
-                              soft! {
-                                  %Text relative_line_num
-                              }.into_text_child()
-                          ]).collect()
-                      }
-                      color => color
-                }
-            }
-        })
-    }
-}
-
-struct FoldLine<'a> {
-    pub fold: &'a Fold,
-    pub line: RopeSlice<'a>,
-}
-
-impl<'a> FoldLine<'a> {
-    pub fn new(fold: &'a Fold, line: RopeSlice<'a>) -> Self {
-        Self { fold, line }
-    }
-}
-
-impl<'a> ComponentInterface for FoldLine<'a> {
-    fn render(&self, grid: Grid) -> Result<Component<'_>, anyhow::Error> {
-        Ok(soft! {
-            %Text
-              children => {
-                let mut children = smallvec![
-                    soft! {
-                        %Text "+--"
-                    }.into_text_child()
-                ];
-                let mut num_bytes_printed_on_fold_line = 3;
-                for _ in self.fold.num_closes..self.fold.full_num_indents {
-                    children.push(soft! {
-                        %Text "-"
-                    }.into_text_child());
-                    num_bytes_printed_on_fold_line += 1;
-                }
-                let printed_num_lines =
-                    format_smolstr!("{}", self.fold.range.end - self.fold.range.start);
-                if printed_num_lines.len() < 3 {
-                    children.push(soft! {
-                        %Text " "
-                    }.into_text_child());
-                    num_bytes_printed_on_fold_line += 1;
-                }
-                children.push(soft! {
-                    %Text &printed_num_lines
-                }.into_text_child());
-                num_bytes_printed_on_fold_line += printed_num_lines.len();
-                children.push(soft! {
-                    %Text " lines: "
-                }.into_text_child());
-                num_bytes_printed_on_fold_line += 8;
-                let mut has_passed_initial_blanks = false;
-                for chunk in self.line.chunks() {
-                    let to_print = if chunk.ends_with("\n") {
-                        &chunk[..chunk.len() - 1]
-                    } else {
-                        chunk
-                    };
-                    let to_print = match has_passed_initial_blanks {
-                        true => to_print,
-                        false => match regex!(r#"^ +"#).find(to_print) {
-                            None => {
-                                has_passed_initial_blanks = true;
-                                to_print
-                            }
-                            Some(initial_blanks) => {
-                                if initial_blanks.len() == to_print.len() {
-                                    continue;
-                                }
-                                has_passed_initial_blanks = true;
-                                &to_print[initial_blanks.len()..]
-                            }
-                        },
-                    };
-                    let remaining_bytes_on_line =
-                        usize::from(grid.width) - num_bytes_printed_on_fold_line;
-                    if to_print.len() > remaining_bytes_on_line {
-                        children.push(soft! {
-                            %Text &to_print[..remaining_bytes_on_line]
-                        }.into_text_child());
-                        break;
-                    }
-                    children.push(soft! {
-                        %Text to_print
-                    }.into_text_child());
-                    num_bytes_printed_on_fold_line += to_print.len();
-                }
-                children
-              }
-              color => known_colors()["dark_blue"]
-        })
-    }
-}
-
-enum RelativeOrCurrentLineNum {
-    Relative(u16),
-    Current(usize),
-}
-
 #[derive(Debug)]
 pub enum Happened {
     Quit,
-}
-
-#[derive(Copy, Clone, Default)]
-pub enum EventAggregator {
-    #[default]
-    Initial,
-    SawZ,
-    InExCommandMode,
-}
-
-impl ReceiveEvent<event::Event, Option<Event>> for EventAggregator {
-    #[instrument(level = "trace", skip(self, event, _queue_effect))]
-    fn receive<TQueueEffect: FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)>(
-        &mut self,
-        event: &event::Event,
-        _queue_effect: TQueueEffect,
-    ) -> Result<Option<Event>, anyhow::Error> {
-        match (*self, event) {
-            (Self::Initial, event) if is_simple_char_press(event, 'j') => {
-                return Ok(Some(Event::MoveCursorDownNLines(1)));
-            }
-            (Self::Initial, event) if is_simple_char_press(event, 'k') => {
-                return Ok(Some(Event::MoveCursorUpNLines(1)));
-            }
-            (Self::Initial, event) if is_simple_char_press(event, 'z') => {
-                *self = Self::SawZ;
-                return Ok(None);
-            }
-            (Self::SawZ, event) if is_simple_char_press(event, 'o') => {
-                *self = Self::Initial;
-                return Ok(Some(Event::OpenFoldUnderCursorOneLevel));
-            }
-            (Self::SawZ, event) if is_simple_char_press(event, 'c') => {
-                *self = Self::Initial;
-                return Ok(Some(Event::CloseFoldUnderCursorOneLevel));
-            }
-            (Self::SawZ, event) if is_simple_char_press(event, 'O') => {
-                *self = Self::Initial;
-                return Ok(Some(Event::FullyOpenFoldUnderCursor));
-            }
-            (Self::SawZ, event) if is_simple_char_press(event, 'C') => {
-                *self = Self::Initial;
-                return Ok(Some(Event::FullyCloseFoldUnderCursor));
-            }
-            (_, event) if is_simple_key_press(event, KeyCode::Esc) => {
-                *self = Self::Initial;
-                return Ok(Some(Event::GoIntoNormalMode));
-            }
-            (Self::Initial, event) if is_simple_char_press(event, ':') => {
-                *self = Self::InExCommandMode;
-                return Ok(Some(Event::GoIntoExCommandMode));
-            }
-            (Self::InExCommandMode, event) if is_any_simple_char_press(event).is_some() => {
-                return Ok(Some(Event::ExCommandChar(
-                    is_any_simple_char_press(event).unwrap(),
-                )));
-            }
-            (Self::InExCommandMode, event) if is_simple_key_press(event, KeyCode::Enter) => {
-                *self = Self::Initial;
-                return Ok(Some(Event::FinishExCommand));
-            }
-            _ => panic!("unexpected event"),
-        }
-    }
 }
