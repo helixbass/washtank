@@ -181,12 +181,12 @@ impl Editor {
         }
     }
 
-    fn maybe_move_cursor_down_one_line(&mut self) -> Result<(), anyhow::Error> {
+    fn maybe_move_cursor_down_one_line(&mut self) {
         if self.cursor_position.row == self.size.height - 1 {
             if self.one_past_final_last_printed_row_line_number()
                 == self.current_file.rope().len_lines()
             {
-                return Ok(());
+                return;
             }
             let first_line_of_new_top_line = match self.top_line {
                 PrintedLine::Line(line) => line + 1,
@@ -204,15 +204,13 @@ impl Editor {
         } else {
             self.cursor_position.row += 1;
         }
-
-        Ok(())
     }
 
-    fn maybe_move_cursor_up_one_line(&mut self) -> Result<(), anyhow::Error> {
+    fn maybe_move_cursor_up_one_line(&mut self) {
         if self.cursor_position.row == 0 {
             let top_line_start_line = self.top_line.start_line(&self.folds);
             if top_line_start_line == 0 {
-                return Ok(());
+                return;
             }
 
             self.top_line = match self
@@ -227,8 +225,6 @@ impl Editor {
         } else {
             self.cursor_position.row -= 1;
         }
-
-        Ok(())
     }
 
     fn num_relative_line_number_columns(&self) -> RowOrColumnNumber {
@@ -247,7 +243,7 @@ impl Editor {
         );
     }
 
-    fn recompute_printed_lines_and_printed_line_chunks(&mut self) {
+    pub(crate) fn recompute_printed_lines_and_printed_line_chunks(&mut self) {
         self.recompute_printed_lines();
         self.printed_line_chunks = compute_printed_line_chunks(
             &self.printed_lines,
@@ -335,28 +331,28 @@ impl ReceiveEvent<Event> for Editor {
         match event {
             Event::MoveCursorDownNLines(n) => {
                 assert_eq!(*n, 1);
-                self.maybe_move_cursor_down_one_line()?;
+                self.maybe_move_cursor_down_one_line();
                 Ok(())
             }
             Event::MoveCursorUpNLines(n) => {
                 assert_eq!(*n, 1);
-                self.maybe_move_cursor_up_one_line()?;
+                self.maybe_move_cursor_up_one_line();
                 Ok(())
             }
             Event::FullyOpenFoldUnderCursor => {
-                self.fully_open_fold_under_cursor()?;
+                self.fully_open_fold_under_cursor();
                 Ok(())
             }
             Event::OpenFoldUnderCursorOneLevel => {
-                self.open_fold_under_cursor_one_level()?;
+                self.open_fold_under_cursor_one_level();
                 Ok(())
             }
             Event::FullyCloseFoldUnderCursor => {
-                self.fully_close_fold_under_cursor()?;
+                self.fully_close_fold_under_cursor();
                 Ok(())
             }
             Event::CloseFoldUnderCursorOneLevel => {
-                self.close_fold_under_cursor_one_level()?;
+                self.close_fold_under_cursor_one_level();
                 Ok(())
             }
         }

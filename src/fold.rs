@@ -3,26 +3,24 @@ use squalid::_d;
 use crate::{Editor, IndentLevel, LineNumber, PrintedLine};
 
 impl Editor {
-    pub fn fully_open_fold_under_cursor(&mut self) -> Result<(), anyhow::Error> {
+    pub fn fully_open_fold_under_cursor(&mut self) {
         let PrintedLine::Fold(fold_index) =
-            self.printed_lines.as_ref().unwrap()[usize::from(self.cursor_position.row)]
+            self.printed_lines[usize::from(self.cursor_position.row)]
         else {
-            return Ok(());
+            return;
         };
-        let _ = self.folds.as_mut().unwrap().remove(fold_index);
-        self.compute_printed_lines();
-        self.rerender_screen()?;
-        Ok(())
+        let _ = self.folds.remove(fold_index);
+        self.recompute_printed_lines_and_printed_line_chunks();
     }
 
-    pub fn open_fold_under_cursor_one_level(&mut self) -> Result<(), anyhow::Error> {
+    pub fn open_fold_under_cursor_one_level(&mut self) {
         let PrintedLine::Fold(fold_index) =
-            self.printed_lines.as_ref().unwrap()[usize::from(self.cursor_position.row)]
+            self.printed_lines[usize::from(self.cursor_position.row)]
         else {
-            return Ok(());
+            return;
         };
-        if self.folds.as_ref().unwrap()[fold_index].num_closes == 1 {
-            let fold = self.folds.as_mut().unwrap().remove(fold_index);
+        if self.folds[fold_index].num_closes == 1 {
+            let fold = self.folds.remove(fold_index);
             let hoisted_nested = fold
                 .nested
                 .into_iter()
@@ -33,68 +31,46 @@ impl Editor {
                     nested: nested.nested,
                 })
                 .collect::<Vec<_>>();
-            let _ = self
-                .folds
-                .as_mut()
-                .unwrap()
-                .splice(fold_index..fold_index, hoisted_nested);
+            let _ = self.folds.splice(fold_index..fold_index, hoisted_nested);
         } else {
-            self.folds
-                .as_mut()
-                .unwrap()
-                .get_mut(fold_index)
-                .unwrap()
-                .num_closes -= 1;
+            self.folds.get_mut(fold_index).unwrap().num_closes -= 1;
         }
 
-        self.compute_printed_lines();
-        self.rerender_screen()?;
-        Ok(())
+        self.recompute_printed_lines_and_printed_line_chunks();
     }
 
-    pub fn fully_close_fold_under_cursor(&mut self) -> Result<(), anyhow::Error> {
-        let start_line = self.printed_lines.as_ref().unwrap()
-            [usize::from(self.cursor_position.row)]
-        .start_line(self.folds.as_ref().unwrap());
+    pub fn fully_close_fold_under_cursor(&mut self) {
+        let start_line =
+            self.printed_lines[usize::from(self.cursor_position.row)].start_line(&self.folds);
 
         let Some(fold_index) = self
             .max_folds
-            .as_ref()
-            .unwrap()
-            .into_iter()
+            .iter()
             .position(|fold| fold.range.start <= start_line && fold.range.end > start_line)
         else {
-            return Ok(());
+            return;
         };
 
-        self.splice_in_new_fold(self.max_folds.as_ref().unwrap()[fold_index].clone());
+        self.splice_in_new_fold(self.max_folds[fold_index].clone());
 
-        self.compute_printed_lines();
+        self.recompute_printed_lines_and_printed_line_chunks();
         let new_cursor_position_row = self
             .printed_lines
-            .as_ref()
-            .unwrap()
-            .into_iter()
+            .iter()
             .position(|printed_line| {
-                printed_line.start_line(self.folds.as_ref().unwrap())
-                    == self.max_folds.as_ref().unwrap()[fold_index].range.start
+                printed_line.start_line(&self.folds) == self.max_folds[fold_index].range.start
             })
             .unwrap();
         self.cursor_position.row = u16::try_from(new_cursor_position_row).unwrap();
-        self.push_cursor_position()?;
-
-        self.rerender_screen()?;
-        Ok(())
     }
 
     fn splice_in_new_fold(&mut self, new_fold: Fold) {
-        let first_fold_index_to_replace =
-            self.folds.as_ref().unwrap().into_iter().position(|fold| {
-                fold.range.start >= new_fold.range.start && fold.range.end <= new_fold.range.end
-            });
+        let first_fold_index_to_replace = self.folds.iter().position(|fold| {
+            fold.range.start >= new_fold.range.start && fold.range.end <= new_fold.range.end
+        });
         let additional_count_to_replace =
             first_fold_index_to_replace.map(|first_fold_index_to_replace| {
-                self.folds.as_ref().unwrap()[first_fold_index_to_replace..]
+                self.folds[first_fold_index_to_replace..]
                     .into_iter()
                     .take_while(|fold| fold.range.end <= new_fold.range.end)
                     .count()
@@ -103,16 +79,11 @@ impl Editor {
             None => {
                 let first_after = self
                     .folds
-                    .as_ref()
-                    .unwrap()
-                    .into_iter()
+                    .iter()
                     .position(|fold| fold.range.start >= new_fold.range.end);
                 match first_after {
                     Some(first_after) => first_after..first_after,
-                    None => {
-                        let folds = self.folds.as_ref().unwrap();
-                        folds.len()..folds.len()
-                    }
+                    None => self.folds.len()..self.folds.len(),
                 }
             }
             Some(first_fold_index_to_replace) => {
@@ -120,30 +91,20 @@ impl Editor {
                     ..first_fold_index_to_replace + additional_count_to_replace.unwrap() + 1
             }
         };
-        self.folds
-            .as_mut()
-            .unwrap()
-            .splice(range_to_splice, [new_fold]);
+        self.folds.splice(range_to_splice, [new_fold]);
     }
 
-    pub fn close_fold_under_cursor_one_level(&mut self) -> Result<(), anyhow::Error> {
-        match self.printed_lines.as_ref().unwrap()[usize::from(self.cursor_position.row)] {
+    pub fn close_fold_under_cursor_one_level(&mut self) {
+        match self.printed_lines[usize::from(self.cursor_position.row)] {
             PrintedLine::Fold(fold_index) => {
-                if self.folds.as_ref().unwrap()[fold_index].num_closes
-                    == self.folds.as_ref().unwrap()[fold_index].full_num_indents
-                {
-                    return Ok(());
+                if self.folds[fold_index].num_closes == self.folds[fold_index].full_num_indents {
+                    return;
                 }
-                self.folds
-                    .as_mut()
-                    .unwrap()
-                    .get_mut(fold_index)
-                    .unwrap()
-                    .num_closes += 1;
+                self.folds.get_mut(fold_index).unwrap().num_closes += 1;
             }
             PrintedLine::Line(line_num) => {
                 let Some(innermost_max_fold) = self.find_innermost_max_fold(line_num) else {
-                    return Ok(());
+                    return;
                 };
                 self.splice_in_new_fold(match innermost_max_fold {
                     FoldOrNestedFold::Fold(fold) => fold.clone(),
@@ -158,17 +119,13 @@ impl Editor {
             }
         }
 
-        self.compute_printed_lines();
-        self.rerender_screen()?;
-        return Ok(());
+        self.recompute_printed_lines_and_printed_line_chunks();
     }
 
     fn find_innermost_max_fold(&self, line_num: usize) -> Option<FoldOrNestedFold<'_>> {
         let fold = self
             .max_folds
-            .as_ref()
-            .unwrap()
-            .into_iter()
+            .iter()
             .find(|fold| fold.range.start <= line_num && fold.range.end > line_num)?;
         Some(
             find_innermost_max_fold_nested(line_num, fold)
