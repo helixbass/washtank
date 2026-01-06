@@ -1479,7 +1479,7 @@ dependencies = [
  "ropey",
  "serde",
  "serde_json",
- "smallvec 1.15.1",
+ "smallvec 2.0.0-alpha.12",
  "smol_str",
  "squalid 0.0.1-dev.0 (git+https://github.com/helixbass/squalid?rev=646f6bf)",
  "tokio",

@@ -16,7 +16,7 @@ use crossterm::{
 };
 use lsp_types::{ClientInfo, InitializeParams};
 use oelung::{soft, Component, ComponentInterface, Grid};
-use oelung_lantern::ReceiveEvent;
+use oelung_lantern::{is_simple_char_press, ReceiveEvent};
 use ropey::Rope;
 use smallvec::{smallvec, SmallVec};
 use smol_str::format_smolstr;
@@ -373,21 +373,37 @@ impl<'a> ComponentInterface for &'a Editor {
 }
 
 impl ReceiveEvent<Event> for Editor {
-    #[instrument(level = "trace", skip(self, event, queue_effect))]
+    #[instrument(level = "trace", skip(self, event, _queue_effect))]
     fn receive<TQueueEffect: FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)>(
         &mut self,
         event: &Event,
-        queue_effect: TQueueEffect,
+        _queue_effect: TQueueEffect,
     ) -> Result<(), anyhow::Error> {
         match event {
             Event::MoveCursorDownNLines(n) => {
-                assert_eq!(n, 1);
+                assert_eq!(*n, 1);
                 self.maybe_move_cursor_down_one_line()?;
                 Ok(())
             }
             Event::MoveCursorUpNLines(n) => {
-                assert_eq!(n, 1);
+                assert_eq!(*n, 1);
                 self.maybe_move_cursor_up_one_line()?;
+                Ok(())
+            }
+            Event::FullyOpenFoldUnderCursor => {
+                self.fully_open_fold_under_cursor()?;
+                Ok(())
+            }
+            Event::OpenFoldUnderCursorOneLevel => {
+                self.open_fold_under_cursor_one_level()?;
+                Ok(())
+            }
+            Event::FullyCloseFoldUnderCursor => {
+                self.fully_close_fold_under_cursor()?;
+                Ok(())
+            }
+            Event::CloseFoldUnderCursorOneLevel => {
+                self.close_fold_under_cursor_one_level()?;
                 Ok(())
             }
         }
@@ -493,7 +509,12 @@ fn known_colors() -> &'static HashMap<String, Color> {
 }
 
 pub enum Event {
-    Crossterm(event::Event),
+    MoveCursorDownNLines(u16),
+    MoveCursorUpNLines(u16),
+    FullyOpenFoldUnderCursor,
+    OpenFoldUnderCursorOneLevel,
+    FullyCloseFoldUnderCursor,
+    CloseFoldUnderCursorOneLevel,
     // Lsp(LspIncomingMessage),
 }
 
@@ -780,4 +801,48 @@ impl ComponentInterface for RelativeLineNumber {
 enum RelativeOrCurrentLineNum {
     Relative(u16),
     Current(u16),
+}
+
+pub enum EventAggregator {
+    Initial,
+    SawZ,
+}
+
+impl ReceiveEvent<event::Event, Option<Event>> for EventAggregator {
+    #[instrument(level = "trace", skip(self, event, queue_effect))]
+    fn receive<TQueueEffect: FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)>(
+        &mut self,
+        event: &event::Event,
+        queue_effect: TQueueEffect,
+    ) -> Result<Option<Event>, anyhow::Error> {
+        match (self, event) {
+            (Self::Initial, event) if is_simple_char_press(event, 'j') => {
+                return Ok(Some(Event::MoveCursorDownNLines(1)));
+            }
+            (Self::Initial, event) if is_simple_char_press(event, 'k') => {
+                return Ok(Some(Event::MoveCursorUpNLines(1)));
+            }
+            (Self::Initial, event) if is_simple_char_press(event, 'z') => {
+                *self = Self::SawZ;
+                return Ok(None);
+            }
+            (Self::SawZ, event) if is_simple_char_press(event, 'o') => {
+                *self = Self::Initial;
+                return Ok(Some(Event::OpenFoldUnderCursorOneLevel));
+            }
+            (Self::SawZ, event) if is_simple_char_press(event, 'c') => {
+                *self = Self::Initial;
+                return Ok(Some(Event::CloseFoldUnderCursorOneLevel));
+            }
+            (Self::SawZ, event) if is_simple_char_press(event, 'O') => {
+                *self = Self::Initial;
+                return Ok(Some(Event::FullyOpenFoldUnderCursor));
+            }
+            (Self::SawZ, event) if is_simple_char_press(event, 'C') => {
+                *self = Self::Initial;
+                return Ok(Some(Event::FullyCloseFoldUnderCursor));
+            }
+            _ => panic!("unexpected event"),
+        }
+    }
 }
