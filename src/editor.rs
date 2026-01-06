@@ -2,6 +2,7 @@ use std::cmp;
 use std::collections::HashMap;
 use std::io::{stdout, StdoutLock, Write};
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::process;
 use std::sync::LazyLock;
 
@@ -15,11 +16,13 @@ use crossterm::{
 };
 use lsp_types::{ClientInfo, InitializeParams};
 use oelung::{soft, Component, ComponentInterface, Grid};
+use oelung_lantern::ReceiveEvent;
 use ropey::Rope;
 use smallvec::{smallvec, SmallVec};
 use smol_str::format_smolstr;
 use squalid::{EverythingExt, _d, regex};
 use tokio::{fs, sync::mpsc::channel};
+use tracing::instrument;
 
 use crate::{
     calculate_folds, calculate_indents, listen_to_crossterm_events, run_rust_analyzer,
@@ -117,6 +120,23 @@ impl Editor {
             &folds,
         );
 
+        // let (rust_analyzer_sender, rust_analyzer_receiver) = channel::<LspOutgoingMessage>(100);
+
+        // run_rust_analyzer(sender.clone(), rust_analyzer_receiver);
+
+        // // rust_analyzer_sender
+        // //     .send(LspOutgoingMessage::Initialize(InitializeParams {
+        // //         // TODO: is std::process:id() blocking aka shouldn't use it
+        // //         // from tokio?
+        // //         process_id: Some(process::id()),
+        // //         client_info: Some(ClientInfo {
+        // //             name: "washtank".to_owned(),
+        // //             // TODO: make this real?
+        // //             version: Some("0.0.1-dev.0".to_owned()),
+        // //         }),
+        // //     }))
+        // //     .unwrap();
+
         // let tree_sitter_highlight_names = vec!["comment", "string_literal"];
         Ok(Self {
             current_file,
@@ -155,31 +175,6 @@ impl Editor {
     }
 
     pub async fn run(&mut self, args: Args) -> Result<(), anyhow::Error> {
-        self.push_cursor_position()?;
-
-        self.open_file(args.file_name).await?;
-
-        let (sender, mut receiver) = channel::<World>(100);
-
-        listen_to_crossterm_events(sender.clone());
-
-        let (rust_analyzer_sender, rust_analyzer_receiver) = channel::<LspOutgoingMessage>(100);
-
-        run_rust_analyzer(sender.clone(), rust_analyzer_receiver);
-
-        // rust_analyzer_sender
-        //     .send(LspOutgoingMessage::Initialize(InitializeParams {
-        //         // TODO: is std::process:id() blocking aka shouldn't use it
-        //         // from tokio?
-        //         process_id: Some(process::id()),
-        //         client_info: Some(ClientInfo {
-        //             name: "washtank".to_owned(),
-        //             // TODO: make this real?
-        //             version: Some("0.0.1-dev.0".to_owned()),
-        //         }),
-        //     }))
-        //     .unwrap();
-
         let mut in_progress_command: Vec<char> = _d();
 
         while let Some(world) = receiver.recv().await {
@@ -226,19 +221,9 @@ impl Editor {
         Ok(())
     }
 
-    pub fn push_cursor_position(&mut self) -> Result<(), anyhow::Error> {
-        self.stdout.execute(cursor::MoveTo(
-            self.cursor_position.column + self.num_relative_line_number_columns() + 1,
-            self.cursor_position.row,
-        ))?;
-
-        Ok(())
-    }
-
     fn one_past_final_last_printed_row_line_number(&self) -> usize {
-        let printed_lines = self.printed_lines.as_ref().unwrap();
-        match printed_lines[printed_lines.len() - 1] {
-            PrintedLine::Fold(fold_index) => self.folds.as_ref().unwrap()[fold_index].range.end,
+        match self.printed_lines[self.printed_lines.len() - 1] {
+            PrintedLine::Fold(fold_index) => self.folds[fold_index].range.end,
             PrintedLine::Line(line) => line + 1,
         }
     }
@@ -250,60 +235,45 @@ impl Editor {
             {
                 return Ok(());
             }
-            let first_line_of_new_top_line = match self.top_line.unwrap() {
+            let first_line_of_new_top_line = match self.top_line {
                 PrintedLine::Line(line) => line + 1,
-                PrintedLine::Fold(fold_index) => self.folds.as_ref().unwrap()[fold_index].range.end,
+                PrintedLine::Fold(fold_index) => self.folds[fold_index].range.end,
             };
-            self.top_line = Some(
-                match self
-                    .folds
-                    .as_ref()
-                    .unwrap()
-                    .into_iter()
-                    .position(|fold| fold.range.start == first_line_of_new_top_line)
-                {
-                    Some(fold_index) => PrintedLine::Fold(fold_index),
-                    None => PrintedLine::Line(first_line_of_new_top_line),
-                },
-            );
-            self.compute_printed_lines();
+            self.top_line = match self
+                .folds
+                .iter()
+                .position(|fold| fold.range.start == first_line_of_new_top_line)
+            {
+                Some(fold_index) => PrintedLine::Fold(fold_index),
+                None => PrintedLine::Line(first_line_of_new_top_line),
+            };
+            self.recompute_printed_lines_and_printed_line_chunks();
         } else {
             self.cursor_position.row += 1;
-            self.push_cursor_position()?;
         }
-        self.rerender_screen()?;
 
         Ok(())
     }
 
     fn maybe_move_cursor_up_one_line(&mut self) -> Result<(), anyhow::Error> {
         if self.cursor_position.row == 0 {
-            let top_line_start_line = self
-                .top_line
-                .unwrap()
-                .start_line(self.folds.as_ref().unwrap());
+            let top_line_start_line = self.top_line.start_line(&self.folds);
             if top_line_start_line == 0 {
                 return Ok(());
             }
 
-            self.top_line = Some(
-                match self
-                    .folds
-                    .as_ref()
-                    .unwrap()
-                    .into_iter()
-                    .position(|fold| fold.range.end == top_line_start_line - 1)
-                {
-                    Some(fold_index) => PrintedLine::Fold(fold_index),
-                    None => PrintedLine::Line(top_line_start_line - 1),
-                },
-            );
-            self.compute_printed_lines();
+            self.top_line = match self
+                .folds
+                .iter()
+                .position(|fold| fold.range.end == top_line_start_line - 1)
+            {
+                Some(fold_index) => PrintedLine::Fold(fold_index),
+                None => PrintedLine::Line(top_line_start_line - 1),
+            };
+            self.recompute_printed_lines_and_printed_line_chunks();
         } else {
             self.cursor_position.row -= 1;
-            self.push_cursor_position()?;
         }
-        self.rerender_screen()?;
 
         Ok(())
     }
@@ -313,6 +283,25 @@ impl Editor {
             3,
             num_columns_taken_up(self.current_file.rope().len_lines()),
         )
+    }
+
+    fn recompute_printed_lines(&mut self) {
+        self.printed_lines = compute_printed_lines(
+            self.current_file.rope().len_lines(),
+            self.top_line,
+            &self.folds,
+            self.size.height,
+        );
+    }
+
+    fn recompute_printed_lines_and_printed_line_chunks(&mut self) {
+        self.recompute_printed_lines();
+        self.printed_line_chunks = compute_printed_line_chunks(
+            &self.printed_lines,
+            self.current_file.rope(),
+            &self.current_tree_sitter_highlights,
+            &self.folds,
+        );
     }
 }
 
@@ -328,7 +317,6 @@ impl<'a> ComponentInterface for &'a Editor {
                   let relative_line_number = soft! {
                       %RelativeLineNumber::new(
                           num_relative_line_number_columns,
-                          line_num,
                           match self.cursor_position.row == printed_row_num {
                               true => RelativeOrCurrentLineNum::Current(line_num),
                               false => RelativeOrCurrentLineNum::Relative(
@@ -346,6 +334,7 @@ impl<'a> ComponentInterface for &'a Editor {
                       PrintedLineChunks::Fold(fold_index) => soft! {
                           %Text children => [
                             relative_line_number
+                            %Text " "
                             %FoldLine::new(&self.folds[fold_index])
                           ]
                       },
@@ -354,7 +343,12 @@ impl<'a> ComponentInterface for &'a Editor {
                           let chunks = line.chunks.collect::<SmallVec<_, 10>>();
                           soft! {
                               %Text children => {
-                                  [relative_line_number].into_iter().chain(
+                                  [
+                                      relative_line_number,
+                                      soft! {
+                                          %Text " "
+                                      }
+                                  ].into_iter().chain(
                                       line_chunks.map(|line_chunk| {
                                           soft! {
                                               %Text
@@ -369,7 +363,34 @@ impl<'a> ComponentInterface for &'a Editor {
                   }
               }).collect()
               overflow_y => hidden
+              cursor => %Cursor.Relative
+                x => self.cursor_position.row
+                y => {
+                    self.cursor_position.column + self.num_relative_line_number_columns() + 1
+                }
         })
+    }
+}
+
+impl ReceiveEvent<Event> for Editor {
+    #[instrument(level = "trace", skip(self, event, queue_effect))]
+    fn receive<TQueueEffect: FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)>(
+        &mut self,
+        event: &Event,
+        queue_effect: TQueueEffect,
+    ) -> Result<(), anyhow::Error> {
+        match event {
+            Event::MoveCursorDownNLines(n) => {
+                assert_eq!(n, 1);
+                self.maybe_move_cursor_down_one_line()?;
+                Ok(())
+            }
+            Event::MoveCursorUpNLines(n) => {
+                assert_eq!(n, 1);
+                self.maybe_move_cursor_up_one_line()?;
+                Ok(())
+            }
+        }
     }
 }
 
@@ -473,7 +494,7 @@ fn known_colors() -> &'static HashMap<String, Color> {
 
 pub enum Event {
     Crossterm(event::Event),
-    Lsp(LspIncomingMessage),
+    // Lsp(LspIncomingMessage),
 }
 
 fn compute_printed_lines(

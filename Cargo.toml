@@ -20,6 +20,7 @@ smol_str = "0.3.4"
 squalid = { git = "https://github.com/helixbass/squalid", rev = "646f6bf" }
 tokio = { version = "1.48.0", features = ["full", "fs"] }
 tokio-stream = "0.1.17"
+tracing = "0.1.44"
 tree-sitter = "0.26.3"
 tree-sitter-highlight = "0.26.3"
 tree-sitter-rust = "0.24.0"
