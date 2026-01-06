@@ -174,6 +174,10 @@ impl<'a> ComponentInterface for EditorGrid<'a> {
                 y => self.editor.cursor_position.row
         })
     }
+
+    fn flex_grow(&self) -> Option<f64> {
+        Some(1.0)
+    }
 }
 
 struct RelativeLineNumber {
