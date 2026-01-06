@@ -7,7 +7,7 @@ use oelung_lantern::{generate_sender, mpsc::Sender, ReceiveEvent};
 use tokio::sync::mpsc::channel;
 use tokio_stream::StreamExt;
 
-use washtank::{Args, Editor, EventAggregator};
+use washtank::{editor, Args, Editor, EventAggregator};
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -20,7 +20,7 @@ async fn main() -> Result<(), anyhow::Error> {
     listen_to_crossterm_events(CrosstermSender::from(sender.clone()));
 
     let mut event_aggregator = EventAggregator::default();
-    let mut editor = Editor::try_new(args).await?;
+    let mut editor = Editor::try_new(args, Box::new(EditorSender::from(sender.clone()))).await?;
 
     render_screen(&mut renderer, &editor)?;
 
@@ -35,6 +35,7 @@ async fn main() -> Result<(), anyhow::Error> {
                     render_screen(&mut renderer, &editor)?;
                 }
             }
+            World::Editor(editor::Happened::Quit) => break,
         }
         for effect in queued_effects {
             tokio::spawn(effect);
@@ -54,9 +55,11 @@ fn render_screen(renderer: &mut Renderer, editor: &Editor) -> Result<(), anyhow:
 
 enum World {
     Crossterm(Event),
+    Editor(editor::Happened),
 }
 
 generate_sender!(World, Crossterm, Event);
+generate_sender!(World, Editor, editor::Happened);
 
 fn listen_to_crossterm_events(sender: CrosstermSender) {
     tokio::spawn(async move {

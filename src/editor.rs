@@ -12,7 +12,7 @@ use crossterm::{
 };
 use oelung::{soft, Component, ComponentInterface, Grid};
 use oelung_lantern::{
-    is_any_simple_char_press, is_simple_char_press, is_simple_key_press, ReceiveEvent,
+    is_any_simple_char_press, is_simple_char_press, is_simple_key_press, mpsc::Sender, ReceiveEvent,
 };
 use ropey::{Rope, RopeSlice};
 use smallvec::{smallvec, SmallVec};
@@ -49,10 +49,15 @@ pub struct Editor {
     pub current_file_indents: Vec<IndentLevel>,
     pub folds: Vec<Fold>,
     pub max_folds: Vec<Fold>,
+    pub mode: Mode,
+    pub sender: Box<dyn Sender<Happened>>,
 }
 
 impl Editor {
-    pub async fn try_new(args: Args) -> Result<Self, anyhow::Error> {
+    pub async fn try_new(
+        args: Args,
+        sender: Box<dyn Sender<Happened>>,
+    ) -> Result<Self, anyhow::Error> {
         let rope = Rope::from_str(strip_trailing_newline(
             &fs::read_to_string(&args.file_name).await?,
         ));
@@ -165,6 +170,8 @@ impl Editor {
             current_file_indents,
             folds,
             max_folds,
+            mode: Mode::Normal,
+            sender,
         })
     }
 
@@ -244,6 +251,13 @@ impl Editor {
             self.current_file.rope(),
             &self.current_tree_sitter_highlights,
         );
+    }
+
+    fn finish_ex_command(&mut self) {
+        if self.mode.as_ex_command() != "q" {
+            panic!("only support `:q` currently");
+        }
+        self.mode = Mode::Normal;
     }
 }
 
@@ -357,6 +371,22 @@ impl ReceiveEvent<Event> for Editor {
                 self.close_fold_under_cursor_one_level();
                 Ok(())
             }
+            Event::GoIntoNormalMode => {
+                self.mode = Mode::Normal;
+                Ok(())
+            }
+            Event::GoIntoExCommandMode => {
+                self.mode = Mode::ExCommand(_d());
+                Ok(())
+            }
+            Event::ExCommandChar(ch) => {
+                self.mode.as_ex_command_mut().push(*ch);
+                Ok(())
+            }
+            Event::FinishExCommand => {
+                self.finish_ex_command();
+                Ok(())
+            }
         }
     }
 }
@@ -466,6 +496,7 @@ pub enum Event {
     OpenFoldUnderCursorOneLevel,
     FullyCloseFoldUnderCursor,
     CloseFoldUnderCursorOneLevel,
+    GoIntoNormalMode,
     GoIntoExCommandMode,
     ExCommandChar(char),
     FinishExCommand,
@@ -674,6 +705,29 @@ fn compute_printed_line_chunks(
     }).collect()
 }
 
+#[derive(Debug)]
+pub enum Mode {
+    Normal,
+    ExCommand(String),
+    Insert,
+}
+
+impl Mode {
+    pub fn as_ex_command(&self) -> &str {
+        match self {
+            Self::ExCommand(command) => command,
+            _ => panic!("expected ex command"),
+        }
+    }
+
+    pub fn as_ex_command_mut(&mut self) -> &mut String {
+        match self {
+            Self::ExCommand(command) => command,
+            _ => panic!("expected ex command"),
+        }
+    }
+}
+
 struct RelativeLineNumber {
     pub num_columns: u16,
     pub relative_or_current_line_num: RelativeOrCurrentLineNum,
@@ -845,6 +899,11 @@ enum RelativeOrCurrentLineNum {
     Current(usize),
 }
 
+#[derive(Debug)]
+pub enum Happened {
+    Quit,
+}
+
 #[derive(Copy, Clone, Default)]
 pub enum EventAggregator {
     #[default]
@@ -889,7 +948,7 @@ impl ReceiveEvent<event::Event, Option<Event>> for EventAggregator {
             }
             (_, event) if is_simple_key_press(event, KeyCode::Esc) => {
                 *self = Self::Initial;
-                return Ok(None);
+                return Ok(Some(Event::GoIntoNormalMode));
             }
             (Self::Initial, event) if is_simple_char_press(event, ':') => {
                 *self = Self::InExCommandMode;
