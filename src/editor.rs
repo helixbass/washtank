@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::LazyLock;
 
+use anyhow;
 use crossterm::{
     cursor,
     event::{self, KeyCode},
@@ -13,7 +14,9 @@ use crossterm::{
     ExecutableCommand, QueueableCommand,
 };
 use lsp_types::{ClientInfo, InitializeParams};
+use oelung::{soft, Component, ComponentInterface, Grid};
 use ropey::Rope;
+use smallvec::SmallVec;
 use smol_str::format_smolstr;
 use squalid::{EverythingExt, _d, regex};
 use tokio::{fs, sync::mpsc::channel};
@@ -35,6 +38,7 @@ pub struct Editor {
     pub size: Size,
     pub top_line: PrintedLine,
     pub printed_lines: Vec<PrintedLine>,
+    pub printed_line_chunks: Vec<PrintedLineChunks>,
     pub tree_sitter_parser: tree_sitter::Parser,
     pub current_tree_sitter_tree: tree_sitter::Tree,
     pub current_tree_sitter_highlights: Vec<TreeSitterHighlight>,
@@ -100,9 +104,18 @@ impl Editor {
             height: rows,
             width: columns,
         });
-        let printed_lines =
-            compute_printed_lines(current_file.rope().len_lines(), top_line, &folds, size.height);
-        let printed_line_chunks = compute_printed_line_chunks(&printed_lines, current_file.rope(), &tree_sitter_highlights, &folds);
+        let printed_lines = compute_printed_lines(
+            current_file.rope().len_lines(),
+            top_line,
+            &folds,
+            size.height,
+        );
+        let printed_line_chunks = compute_printed_line_chunks(
+            &printed_lines,
+            current_file.rope(),
+            &tree_sitter_highlights,
+            &folds,
+        );
 
         // let tree_sitter_highlight_names = vec!["comment", "string_literal"];
         Ok(Self {
@@ -111,6 +124,7 @@ impl Editor {
             size,
             top_line,
             printed_lines,
+            printed_line_chunks,
             tree_sitter_parser,
             current_tree_sitter_tree,
             current_tree_sitter_highlights: tree_sitter_highlights,
@@ -341,201 +355,48 @@ impl Editor {
 
 impl<'a> ComponentInterface for &'a Editor {
     fn render(&self, _grid: Grid) -> Result<Component<'_>, anyhow::Error> {
-        let num_lines = self.current_file.rope().len_lines();
-        let top_line = self
-            .top_line
-            .start_line(&self.folds);
-        assert!(top_line <= num_lines - 1);
-
-        let flex_column = FlexColumnBuilder::default();
-
         let num_relative_line_number_columns = self.num_relative_line_number_columns();
-        type IndexInHighlights = usize;
-        #[derive(Copy, Clone)]
-        enum OpenHighlightOrProgress {
-            OpenHighlight(IndexInHighlights),
-            Next(IndexInHighlights),
-        }
 
-        impl Default for OpenHighlightOrProgress {
-            fn default() -> Self {
-                Self::Next(0)
-            }
-        }
-
-        let mut last_highlight: OpenHighlightOrProgress = _d();
-        for printed_row_num in 0..self.printed_lines.len() {
-            let printed_line = &self.printed_lines[printed_row_num];
-            let printed_row_num = u16::try_from(printed_row_num).unwrap();
-            let current_line_num = match printed_line {
-                PrintedLine::Line(line) => line,
-                PrintedLine::Fold(fold_index) => {
-                    self.folds[fold_index].range.start
-                }
-            };
-            self.print_relative_line_number(
-                printed_row_num,
-                num_relative_line_number_columns,
-                current_line_num,
-            )?;
-            match printed_line {
-                PrintedLine::Fold(fold_index) => {
-                    self.stdout
-                        .queue(SetForegroundColor(known_colors()["dark_blue"]))?;
-                    let fold = &self.folds.as_ref().unwrap()[fold_index];
-                    self.stdout.queue(Print("+--"))?;
-                    let mut num_bytes_printed_on_fold_line = 3;
-                    for _ in fold.num_closes..fold.full_num_indents {
-                        self.stdout.queue(Print("-"))?;
-                        num_bytes_printed_on_fold_line += 1;
-                    }
-                    let printed_num_lines =
-                        format_smolstr!("{}", fold.range.end - fold.range.start);
-                    if printed_num_lines.len() < 3 {
-                        self.stdout.queue(Print(" "))?;
-                        num_bytes_printed_on_fold_line += 1;
-                    }
-                    self.stdout.queue(Print(&printed_num_lines))?;
-                    num_bytes_printed_on_fold_line += printed_num_lines.len();
-                    self.stdout.queue(Print(" lines: "))?;
-                    num_bytes_printed_on_fold_line += 8;
-                    let line = self.current_file.rope().line(fold.range.start);
-                    let mut has_passed_initial_blanks = false;
-                    for chunk in line.chunks() {
-                        let to_print = if chunk.ends_with("\n") {
-                            &chunk[..chunk.len() - 1]
-                        } else {
-                            chunk
-                        };
-                        let to_print = match has_passed_initial_blanks {
-                            true => to_print,
-                            false => match regex!(r#"^ +"#).find(to_print) {
-                                None => {
-                                    has_passed_initial_blanks = true;
-                                    to_print
-                                }
-                                Some(initial_blanks) => {
-                                    if initial_blanks.len() == to_print.len() {
-                                        continue;
-                                    }
-                                    has_passed_initial_blanks = true;
-                                    &to_print[initial_blanks.len()..]
-                                }
-                            },
-                        };
-                        let remaining_bytes_on_line =
-                            usize::from(self.size.width) - num_bytes_printed_on_fold_line;
-                        if to_print.len() > remaining_bytes_on_line {
-                            self.stdout
-                                .queue(Print(&to_print[..remaining_bytes_on_line]))?;
-                            break;
-                        }
-                        self.stdout.queue(Print(to_print))?;
-                        num_bytes_printed_on_fold_line += to_print.len();
-                    }
-                }
-                PrintedLine::Line(_) => {
-                    let line = self.current_file.rope().line(current_line_num);
-
-                    let mut current_start_byte =
-                        self.current_file.rope().line_to_byte(current_line_num);
-                    for chunk in line.chunks() {
-                        let next_start_byte = current_start_byte + chunk.len();
-                        let mut bytes_printed = 0;
-                        if let OpenHighlightOrProgress::OpenHighlight(index_in_highlights) =
-                            last_highlight
-                        {
-                            let open_highlight =
-                                self.current_tree_sitter_highlights[index_in_highlights];
-                            if open_highlight.end_byte < next_start_byte {
-                                let num_bytes_to_print =
-                                    open_highlight.end_byte - current_start_byte;
-                                self.stdout.queue(Print(&chunk[..num_bytes_to_print]))?;
-                                bytes_printed += num_bytes_to_print;
-                                self.stdout.queue(ResetColor)?;
-                                last_highlight =
-                                    OpenHighlightOrProgress::Next(index_in_highlights + 1);
-                            } else {
-                                self.stdout.queue(Print(if chunk.ends_with("\n") {
-                                    &chunk[..chunk.len() - 1]
-                                } else {
-                                    chunk
-                                }))?;
-                                current_start_byte = next_start_byte;
-                                continue;
-                            }
-                        }
-                        'more_highlights: while !matches!(
-                            last_highlight,
-                            OpenHighlightOrProgress::Next(last_highlight_next)
-                                if last_highlight_next >= self.current_tree_sitter_highlights.len()
-                                    || self.current_tree_sitter_highlights[last_highlight_next].start_byte >= next_start_byte
-                        ) && !matches!(
-                            last_highlight,
-                            OpenHighlightOrProgress::OpenHighlight(last_highlight_open)
-                                if self.current_tree_sitter_highlights[last_highlight_open].end_byte >= next_start_byte
-                        ) {
-                            match last_highlight {
-                                OpenHighlightOrProgress::OpenHighlight(last_highlight_open) => {
-                                    let open_highlight =
-                                        self.current_tree_sitter_highlights[last_highlight_open];
-                                    let num_bytes_to_print = open_highlight.end_byte
-                                        - (current_start_byte + bytes_printed);
-                                    self.stdout.queue(Print(
-                                        &chunk[bytes_printed..bytes_printed + num_bytes_to_print],
-                                    ))?;
-                                    bytes_printed += num_bytes_to_print;
-                                    self.stdout.queue(ResetColor)?;
-                                    last_highlight =
-                                        OpenHighlightOrProgress::Next(last_highlight_open + 1);
-                                }
-                                OpenHighlightOrProgress::Next(last_highlight_next) => {
-                                    let next_highlight =
-                                        self.current_tree_sitter_highlights[last_highlight_next];
-                                    while next_highlight.end_byte <= current_start_byte {
-                                        last_highlight =
-                                            OpenHighlightOrProgress::Next(last_highlight_next + 1);
-                                        continue 'more_highlights;
-                                    }
-                                    let num_bytes_to_print = next_highlight.start_byte
-                                        - (current_start_byte + bytes_printed);
-                                    self.stdout.queue(Print(
-                                        &chunk[bytes_printed..bytes_printed + num_bytes_to_print],
-                                    ))?;
-                                    bytes_printed += num_bytes_to_print;
-                                    self.stdout.queue(SetForegroundColor(
-                                        self.tree_sitter_highlight_colors
-                                            [next_highlight.highlight_type_index],
-                                    ))?;
-                                    last_highlight =
-                                        OpenHighlightOrProgress::OpenHighlight(last_highlight_next);
-                                }
-                            }
-                        }
-                        if chunk.ends_with("\n") {
-                            if bytes_printed < chunk.len() - 1 {
-                                self.stdout
-                                    .queue(Print(&chunk[bytes_printed..chunk.len() - 1]))?;
-                            }
-                        } else {
-                            if bytes_printed < chunk.len() {
-                                self.stdout.queue(Print(&chunk[bytes_printed..]))?;
-                            }
-                        }
-                        current_start_byte = next_start_byte;
-                    }
-                }
-            }
-
-            if printed_row_num != self.size.height - 1 {
-                self.stdout.queue(Print("\r\n"))?;
-            }
-        }
-
-        Ok(())
-    }
-
-
+        Ok(soft! {
+            %FlexColumn
+              children => self.printed_line_chunks.iter().enumerate().map(|(printed_row_num, printed_line_chunks)| {
+                  let printed_row_num = u16::try_from(printed_row_num).unwrap();
+                  let line_num = printed_line_chunks.start_line(&self.folds);
+                  let relative_line_number = soft! {
+                      %RelativeLineNumber::new(
+                          num_relative_line_number_columns,
+                          line_num,
+                          self.cursor_position.row == printed_row_num,
+                      )
+                  };
+                  match printed_line_chunks {
+                      PrintedLineChunks::Fold(fold_index) => soft! {
+                          %Text children => [
+                            relative_line_number
+                            %FoldLine::new(&self.folds[fold_index])
+                          ]
+                      },
+                      PrintedLineChunks::Line(line_num, line_chunks) => {
+                          let line = self.current_file.rope().line(line_num);
+                          let chunks = line.chunks.collect::<SmallVec<_, 10>>();
+                          soft! {
+                              %Text children => {
+                                  [relative_line_number].into_iter().chain(
+                                      line_chunks.map(|line_chunk| {
+                                          soft! {
+                                              %Text
+                                                text => &chunks[line_chunk.chunk_index][line_chunk.chunk_start_byte..line_chunk.chunk_end_byte]
+                                                color => self.tree_sitter_highlight_colors[line_chunk.highlight_type_index]
+                                          }
+                                      })
+                                  ).collect()
+                              }
+                          }
+                      }
+                  }
+              }).collect()
+              overflow_y => hidden
+        })
     }
 }
 
@@ -682,6 +543,15 @@ fn compute_printed_lines(
 enum PrintedLineChunks {
     Line(LineNumber, LineChunks),
     Fold(FoldIndex),
+}
+
+impl PrintedLineChunks {
+    pub fn start_line(&self, folds: &[Fold]) -> LineNumber {
+        match self {
+            Self::Line(line, _) => *line,
+            Self::Fold(fold_index) => folds[*fold_index].range.start,
+        }
+    }
 }
 
 type LineChunks = SmallVec<LineChunk, 10>;
