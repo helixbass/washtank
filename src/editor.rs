@@ -10,6 +10,7 @@ use crossterm::{
     style::Color,
     terminal::size,
 };
+use futures::future::FutureExt;
 use oelung::{soft, Component, ComponentInterface, Grid};
 use oelung_lantern::{
     is_any_simple_char_press, is_simple_char_press, is_simple_key_press, mpsc::Sender, ReceiveEvent,
@@ -253,11 +254,23 @@ impl Editor {
         );
     }
 
-    fn finish_ex_command(&mut self) {
+    fn finish_ex_command<
+        TQueueEffect: FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>),
+    >(
+        &mut self,
+        mut queue_effect: TQueueEffect,
+    ) {
         if self.mode.as_ex_command() != "q" {
             panic!("only support `:q` currently");
         }
         self.mode = Mode::Normal;
+        queue_effect({
+            let sender = self.sender.box_clone();
+            async move {
+                sender.send(Happened::Quit).await;
+            }
+            .boxed()
+        });
     }
 }
 
@@ -338,11 +351,11 @@ impl<'a> ComponentInterface for &'a Editor {
 }
 
 impl ReceiveEvent<Event> for Editor {
-    #[instrument(level = "trace", skip(self, event, _queue_effect))]
+    #[instrument(level = "trace", skip(self, event, queue_effect))]
     fn receive<TQueueEffect: FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)>(
         &mut self,
         event: &Event,
-        _queue_effect: TQueueEffect,
+        queue_effect: TQueueEffect,
     ) -> Result<(), anyhow::Error> {
         match event {
             Event::MoveCursorDownNLines(n) => {
@@ -384,7 +397,7 @@ impl ReceiveEvent<Event> for Editor {
                 Ok(())
             }
             Event::FinishExCommand => {
-                self.finish_ex_command();
+                self.finish_ex_command(queue_effect);
                 Ok(())
             }
         }
