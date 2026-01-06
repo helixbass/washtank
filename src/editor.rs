@@ -319,10 +319,10 @@ impl<'a> ComponentInterface for &'a Editor {
               }).collect::<Result<_, _>>()?
               overflow_y => hidden
               cursor => %Cursor.Relative
-                x => self.cursor_position.row
-                y => {
+                x => {
                     self.cursor_position.column + self.num_relative_line_number_columns() + 1
                 }
+                y => self.cursor_position.row
         })
     }
 }
