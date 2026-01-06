@@ -7,6 +7,7 @@ use std::sync::LazyLock;
 use anyhow;
 use crossterm::{style::Color, terminal::size};
 use futures::future::FutureExt;
+use oelung::{RowOrColumnNumber, Size};
 use oelung_lantern::mpsc::Sender;
 use ropey::Rope;
 use smallvec::SmallVec;
@@ -300,17 +301,10 @@ pub struct OpenFileNamed {
     pub path: PathBuf,
 }
 
-pub type RowOrColumnNumber = u16;
-
 #[derive(Default)]
 pub struct Position {
     pub row: RowOrColumnNumber,
     pub column: RowOrColumnNumber,
-}
-
-pub struct Size {
-    pub height: RowOrColumnNumber,
-    pub width: RowOrColumnNumber,
 }
 
 #[derive(Copy, Clone)]

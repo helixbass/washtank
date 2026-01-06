@@ -2,7 +2,7 @@ use std::pin::Pin;
 use std::rc::Rc;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-use oelung::{soft, MemoryBackend, Renderer, RendererBuilder};
+use oelung::{soft, BackendMemory, Renderer, RendererBuilder};
 use oelung_lantern::{generate_sender, mpsc::Sender, ReceiveEvent};
 use tokio::sync::mpsc::channel;
 
@@ -13,7 +13,7 @@ pub async fn run_interactive_test(
     input: &str,
     expected_screen_state: &str,
 ) -> Result<(), anyhow::Error> {
-    let memory_backend = Rc::new(MemoryBackend::new(24, 80));
+    let memory_backend = Rc::new(BackendMemory::new(24, 80));
 
     let mut renderer = RendererBuilder::default()
         .backend(memory_backend.clone())
@@ -88,9 +88,16 @@ enum World {
 generate_sender!(World, Crossterm, Event);
 generate_sender!(World, Editor, editor::Happened);
 
-fn assert_expected_screen_contents(memory_backend: &MemoryBackend, expected_screen_state: &str) {
+fn assert_expected_screen_contents(memory_backend: &BackendMemory, expected_screen_state: &str) {
     let expected_screen_state = ExpectedScreenState::from(expected_screen_state);
-    assert_eq!(unimplemented!(), expected_screen_state.text_contents);
+    assert_eq!(
+        memory_backend
+            .grid
+            .iter()
+            .map(|row| { row.into_iter().map(|cell| cell.content).collect::<String>() })
+            .collect(),
+        expected_screen_state.text_contents
+    );
 }
 
 pub struct ExpectedScreenState {
