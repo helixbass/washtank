@@ -468,6 +468,7 @@ pub enum Event {
     CloseFoldUnderCursorOneLevel,
     GoIntoExCommandMode,
     ExCommandChar(char),
+    FinishExCommand,
     // Lsp(LspIncomingMessage),
 }
 
@@ -898,6 +899,10 @@ impl ReceiveEvent<event::Event, Option<Event>> for EventAggregator {
                 return Ok(Some(Event::ExCommandChar(
                     is_any_simple_char_press(event).unwrap(),
                 )));
+            }
+            (Self::InExCommandMode, event) if is_simple_key_press(event, KeyCode::Enter) => {
+                *self = Self::Initial;
+                return Ok(Some(Event::FinishExCommand));
             }
             _ => panic!("unexpected event"),
         }
