@@ -2,7 +2,7 @@ use std::pin::Pin;
 
 use clap::Parser;
 use crossterm::event::{Event, EventStream};
-use oelung::Renderer;
+use oelung::{soft, Renderer};
 use oelung_lantern::{generate_sender, mpsc::Sender, ReceiveEvent};
 use tokio::sync::mpsc::channel;
 use tokio_stream::StreamExt;
@@ -38,6 +38,14 @@ async fn main() -> Result<(), anyhow::Error> {
             tokio::spawn(effect);
         }
     }
+
+    Ok(())
+}
+
+fn render_screen(renderer: &mut Renderer, editor: &Editor) -> Result<(), anyhow::Error> {
+    renderer.render(soft! {
+      %editor
+    })?;
 
     Ok(())
 }

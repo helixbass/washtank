@@ -510,7 +510,7 @@ fn compute_printed_lines(
     ret
 }
 
-enum PrintedLineChunks {
+pub enum PrintedLineChunks {
     Line(LineNumber, LineChunks),
     Fold(FoldIndex),
 }
@@ -526,7 +526,7 @@ impl PrintedLineChunks {
 
 type LineChunks = SmallVec<LineChunk, 10>;
 
-struct LineChunk {
+pub struct LineChunk {
     pub chunk_index: usize,
     pub chunk_start_byte: usize,
     pub chunk_end_byte: usize,

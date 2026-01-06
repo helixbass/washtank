@@ -1,5 +1,7 @@
 /target
 
+Cargo.lock
+
 tmp*
 
 dev.log
