@@ -174,53 +174,6 @@ impl Editor {
         })
     }
 
-    pub async fn run(&mut self, args: Args) -> Result<(), anyhow::Error> {
-        let mut in_progress_command: Vec<char> = _d();
-
-        while let Some(world) = receiver.recv().await {
-            match world {
-                World::Crossterm(Event::Key(key)) => match key.code {
-                    KeyCode::Char('j') => {
-                        assert!(in_progress_command.is_empty());
-                        self.maybe_move_cursor_down_one_line()?;
-                    }
-                    KeyCode::Char('k') => {
-                        assert!(in_progress_command.is_empty());
-                        self.maybe_move_cursor_up_one_line()?;
-                    }
-                    KeyCode::Char('z') => {
-                        assert!(in_progress_command.is_empty());
-                        in_progress_command.push('z');
-                    }
-                    KeyCode::Char('O') => {
-                        assert!(in_progress_command.len() == 1 && in_progress_command[0] == 'z');
-                        self.fully_open_fold_under_cursor()?;
-                        in_progress_command.clear();
-                    }
-                    KeyCode::Char('o') => {
-                        assert!(in_progress_command.len() == 1 && in_progress_command[0] == 'z');
-                        self.open_fold_under_cursor_one_level()?;
-                        in_progress_command.clear();
-                    }
-                    KeyCode::Char('C') => {
-                        assert!(in_progress_command.len() == 1 && in_progress_command[0] == 'z');
-                        self.fully_close_fold_under_cursor()?;
-                        in_progress_command.clear();
-                    }
-                    KeyCode::Char('c') => {
-                        assert!(in_progress_command.len() == 1 && in_progress_command[0] == 'z');
-                        self.close_fold_under_cursor_one_level()?;
-                        in_progress_command.clear();
-                    }
-                    _ => unimplemented!(),
-                },
-                _ => unimplemented!(),
-            }
-        }
-
-        Ok(())
-    }
-
     fn one_past_final_last_printed_row_line_number(&self) -> usize {
         match self.printed_lines[self.printed_lines.len() - 1] {
             PrintedLine::Fold(fold_index) => self.folds[fold_index].range.end,
