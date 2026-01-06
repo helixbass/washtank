@@ -21,6 +21,9 @@ use tokio::{fs, sync::mpsc::channel};
 use crate::{
     listen_to_crossterm_events, run_rust_analyzer, strip_trailing_newline, Args, Fold, FoldIndex,
     IndentLevel, LineNumber, LspIncomingMessage, LspOutgoingMessage, TreeSitterHighlight,
+    tree_sitter::{self as tree_sitter_mod, calculate_highlights},
+    calculate_folds,
+    calculate_indents,
 };
 
 pub struct Editor {
@@ -29,7 +32,6 @@ pub struct Editor {
     /// not in terms of file line # or actual terminal cursor
     /// position
     pub cursor_position: Position,
-    pub stdout: StdoutLock<'static>,
     pub size: Size,
     pub top_line: Option<PrintedLine>,
     pub printed_lines: Option<Vec<PrintedLine>>,
@@ -48,12 +50,72 @@ pub struct Editor {
 }
 
 impl Editor {
-    pub fn try_new() -> Result<Self, anyhow::Error> {
+    pub async fn try_new(args: Args) -> Result<Self, anyhow::Error> {
+        let rope = Rope::from_str(strip_trailing_newline(
+            &fs::read_to_string(&args.file_name).await?,
+        ));
+        let current_file = OpenFile::Named(OpenFileNamed {
+            rope,
+            path: file_name,
+        });
+
+        let mut tree_sitter_parser = {
+            let mut parser = tree_sitter::Parser::new();
+            parser
+                .set_language(&tree_sitter_rust::LANGUAGE.into())
+                .unwrap();
+            parser
+        };
+        let current_tree_sitter_tree = tree_sitter_mod::parse_from_scratch(current_file.rope(), &mut tree_sitter_parser);
+        let tree_sitter_highlight_query = tree_sitter::Query::new(
+            &tree_sitter_rust::LANGUAGE.into(),
+            r#"
+                (line_comment) @line_comment
+                (block_comment) @block_comment
+                (string_literal) @string_literal
+            "#,
+        )?;
+        let tree_sitter_highlights = calculate_highlights(
+            &tree_sitter_highlight_query,
+            current_tree_sitter_tree.root_node(),
+            current_file.rope(),
+        )?;
+
+        let current_file_shift_width = 4;
+        let current_file_indents = calculate_indents(
+            current_file.rope(),
+            current_file_shift_width,
+        );
+
+        let folds = calculate_folds(&current_file_indents);
+        let max_folds = folds.clone();
+
+        let top_line =
+            if matches!(
+                folds.iter().next(),
+                Some(fold) if fold.range.start == 0
+            ) {
+                PrintedLine::Fold(0)
+            } else {
+                PrintedLine::Line(0)
+            };
+        let size = size()?.thrush(|(columns, rows)| Size {
+            height: rows,
+            width: columns,
+        });
+        let printed_lines = compute_printed_lines(
+            current_file.rope(),
+            top_line,
+            &folds,
+            size.height,
+        );
+        self.rerender_screen()?;
+
+        Ok(())
         // let tree_sitter_highlight_names = vec!["comment", "string_literal"];
         Ok(Self {
             current_file: _d(),
             cursor_position: _d(),
-            stdout: stdout().lock(),
             size: size()?.thrush(|(columns, rows)| Size {
                 height: rows,
                 width: columns,
@@ -184,9 +246,7 @@ impl Editor {
         });
 
         self.current_tree_sitter_tree = Some(self.parse_tree_sitter_from_scratch());
-        self.calculate_tree_sitter_highlights()?;
 
-        self.set_current_file_indents();
         self.apply_initial_folds();
         self.top_line = Some(
             if matches!(
@@ -293,55 +353,8 @@ impl Editor {
         )
     }
 
-    pub fn compute_printed_lines(&mut self) {
-        let num_lines = self.current_file.rope().len_lines();
-        let top_line = self
-            .top_line
-            .unwrap()
-            .start_line(self.folds.as_ref().unwrap());
-        assert!(top_line <= num_lines - 1);
-
-        let mut current_line_num = top_line;
-        let mut next_eligible_fold_index = self
-            .folds
-            .as_ref()
-            .unwrap()
-            .into_iter()
-            .position(|fold| fold.range.start >= top_line);
-        let mut printed_lines: Vec<PrintedLine> = _d();
-        for _ in 0..self.size.height {
-            if current_line_num >= num_lines {
-                break;
-            }
-
-            if let Some(next_eligible_fold_index_yes) =
-                next_eligible_fold_index.filter(|&next_eligible_fold_index| {
-                    self.folds.as_ref().unwrap()[next_eligible_fold_index]
-                        .range
-                        .start
-                        == current_line_num
-                })
-            {
-                printed_lines.push(PrintedLine::Fold(next_eligible_fold_index_yes));
-                current_line_num = self.folds.as_ref().unwrap()[next_eligible_fold_index_yes]
-                    .range
-                    .end;
-                if next_eligible_fold_index_yes < self.folds.as_ref().unwrap().len() - 1 {
-                    next_eligible_fold_index = Some(next_eligible_fold_index_yes + 1);
-                }
-            } else {
-                printed_lines.push(PrintedLine::Line(current_line_num));
-                current_line_num += 1;
-            }
-        }
-        self.printed_lines = Some(printed_lines);
-    }
-
     pub fn rerender_screen(&mut self) -> Result<(), anyhow::Error> {
-        self.stdout.queue(Clear(ClearType::All))?;
-        self.stdout.queue(cursor::SavePosition)?;
-        self.stdout.queue(cursor::Hide)?;
-        self.stdout.queue(cursor::MoveTo(0, 0))?;
+        self.renderer.render(soft! {});
 
         let num_lines = self.current_file.rope().len_lines();
         let top_line = self
@@ -533,11 +546,6 @@ impl Editor {
             }
         }
 
-        self.stdout.queue(cursor::RestorePosition)?;
-        self.stdout.queue(cursor::Show)?;
-
-        self.stdout.flush()?;
-
         Ok(())
     }
 
@@ -681,3 +689,43 @@ pub enum World {
     Crossterm(Event),
     Lsp(LspIncomingMessage),
 }
+
+fn compute_printed_lines(rope: &Rope, top_line: PrintedLine, folds: &[Fold], height: u16) -> Vec<PrintedLine> {
+    let num_lines = rope.len_lines();
+    let top_line = top_line.start_line(folds);
+    assert!(top_line <= num_lines - 1);
+
+    let mut current_line_num = top_line;
+    let mut next_eligible_fold_index =
+        folds
+        .into_iter()
+        .position(|fold| fold.range.start >= top_line);
+    let mut ret: Vec<PrintedLine> = _d();
+    for _ in 0..height {
+        if current_line_num >= num_lines {
+            break;
+        }
+
+        if let Some(next_eligible_fold_index_yes) =
+            next_eligible_fold_index.filter(|&next_eligible_fold_index| {
+                folds[next_eligible_fold_index]
+                    .range
+                    .start
+                    == current_line_num
+            })
+        {
+            ret.push(PrintedLine::Fold(next_eligible_fold_index_yes));
+            current_line_num = folds[next_eligible_fold_index_yes]
+                .range
+                .end;
+            if next_eligible_fold_index_yes < folds.len() - 1 {
+                next_eligible_fold_index = Some(next_eligible_fold_index_yes + 1);
+            }
+        } else {
+            ret.push(PrintedLine::Line(current_line_num));
+            current_line_num += 1;
+        }
+    }
+    ret
+}
+

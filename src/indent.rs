@@ -1,17 +1,6 @@
 use ropey::{Rope, RopeSlice};
 use squalid::regex;
 
-use crate::Editor;
-
-impl Editor {
-    pub fn set_current_file_indents(&mut self) {
-        self.current_file_indents = Some(calculate_indents(
-            self.current_file.rope(),
-            self.current_file_shift_width,
-        ));
-    }
-}
-
 fn get_indent_level(line: RopeSlice, shift_width: usize) -> IndentLevel {
     let mut spaces_seen_so_far = 0;
     for chunk in line.chunks() {

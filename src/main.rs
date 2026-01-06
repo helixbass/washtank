@@ -1,10 +1,9 @@
-use std::io::stdout;
-
 use clap::Parser;
-use crossterm::{
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
+use crossterm::event::{Event, EventStream};
+use oelung::Renderer;
+use oelung_lantern::{generate_sender, mpsc::Sender};
+use tokio::sync::mpsc::channel;
+use tokio_stream::StreamExt;
 
 use washtank::{Args, Editor};
 
@@ -12,12 +11,31 @@ use washtank::{Args, Editor};
 async fn main() -> Result<(), anyhow::Error> {
     let args = Args::parse();
 
-    enable_raw_mode()?;
-    execute!(stdout(), EnterAlternateScreen)?;
+    let mut renderer = Renderer::try_new()?;
 
-    Editor::try_new()?.run(args).await?;
+    let (sender, mut receiver) = channel::<World>(100);
 
-    execute!(stdout(), LeaveAlternateScreen)?;
-    disable_raw_mode()?;
+    let editor = Editor::try_new(args).await?;
+
+    render_screen(&mut renderer, &editor)?;
+
     Ok(())
+}
+
+enum World {
+    Crossterm(Event),
+}
+
+generate_sender!(World, Crossterm, Event);
+
+fn listen_to_crossterm_events(sender: CrosstermSender) {
+    tokio::spawn(async move {
+        let mut event_stream = EventStream::new();
+
+        while let Some(Ok(event)) = event_stream.next().await {
+            sender.send(event).await;
+        }
+
+        panic!("kill everything")
+    });
 }

@@ -3,11 +3,6 @@ use squalid::_d;
 use crate::{Editor, IndentLevel, LineNumber, PrintedLine};
 
 impl Editor {
-    pub fn apply_initial_folds(&mut self) {
-        self.folds = Some(calculate_folds(self.current_file_indents.as_ref().unwrap()));
-        self.max_folds = self.folds.clone();
-    }
-
     pub fn fully_open_fold_under_cursor(&mut self) -> Result<(), anyhow::Error> {
         let PrintedLine::Fold(fold_index) =
             self.printed_lines.as_ref().unwrap()[usize::from(self.cursor_position.row)]

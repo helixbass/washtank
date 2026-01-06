@@ -10,7 +10,7 @@ mod indent;
 mod jsonrpc;
 mod lsp;
 mod terminal;
-mod tree_sitter;
+pub mod tree_sitter;
 
 pub use editor::{Editor, PrintedLine, World};
 pub use fold::{calculate_folds, Fold, FoldIndex};
