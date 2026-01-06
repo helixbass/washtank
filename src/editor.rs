@@ -11,7 +11,9 @@ use crossterm::{
     terminal::size,
 };
 use oelung::{soft, Component, ComponentInterface, Grid};
-use oelung_lantern::{is_simple_char_press, is_simple_key_press, ReceiveEvent};
+use oelung_lantern::{
+    is_any_simple_char_press, is_simple_char_press, is_simple_key_press, ReceiveEvent,
+};
 use ropey::{Rope, RopeSlice};
 use smallvec::{smallvec, SmallVec};
 use smol_str::format_smolstr;
@@ -464,6 +466,8 @@ pub enum Event {
     OpenFoldUnderCursorOneLevel,
     FullyCloseFoldUnderCursor,
     CloseFoldUnderCursorOneLevel,
+    GoIntoExCommandMode,
+    ExCommandChar(char),
     // Lsp(LspIncomingMessage),
 }
 
@@ -845,6 +849,7 @@ pub enum EventAggregator {
     #[default]
     Initial,
     SawZ,
+    InExCommandMode,
 }
 
 impl ReceiveEvent<event::Event, Option<Event>> for EventAggregator {
@@ -884,6 +889,15 @@ impl ReceiveEvent<event::Event, Option<Event>> for EventAggregator {
             (_, event) if is_simple_key_press(event, KeyCode::Esc) => {
                 *self = Self::Initial;
                 return Ok(None);
+            }
+            (Self::Initial, event) if is_simple_char_press(event, ':') => {
+                *self = Self::InExCommandMode;
+                return Ok(Some(Event::GoIntoExCommandMode));
+            }
+            (Self::InExCommandMode, event) if is_any_simple_char_press(event).is_some() => {
+                return Ok(Some(Event::ExCommandChar(
+                    is_any_simple_char_press(event).unwrap(),
+                )));
             }
             _ => panic!("unexpected event"),
         }
