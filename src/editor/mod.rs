@@ -5,21 +5,13 @@ use std::pin::Pin;
 use std::sync::LazyLock;
 
 use anyhow;
-use crossterm::{
-    event::{self, KeyCode},
-    style::Color,
-    terminal::size,
-};
+use crossterm::{style::Color, terminal::size};
 use futures::future::FutureExt;
-use oelung_lantern::{
-    is_any_simple_char_press, is_simple_char_press, is_simple_key_press, mpsc::Sender, ReceiveEvent,
-};
-use ropey::{Rope, RopeSlice};
-use smallvec::{smallvec, SmallVec};
-use smol_str::format_smolstr;
-use squalid::{EverythingExt, _d, regex};
+use oelung_lantern::mpsc::Sender;
+use ropey::Rope;
+use smallvec::SmallVec;
+use squalid::{EverythingExt, _d};
 use tokio::fs;
-use tracing::instrument;
 
 use crate::{
     calculate_folds, calculate_indents, strip_trailing_newline,
