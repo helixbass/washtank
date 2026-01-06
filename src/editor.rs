@@ -5,9 +5,13 @@ use std::pin::Pin;
 use std::sync::LazyLock;
 
 use anyhow;
-use crossterm::{event, style::Color, terminal::size};
+use crossterm::{
+    event::{self, KeyCode},
+    style::Color,
+    terminal::size,
+};
 use oelung::{soft, Component, ComponentInterface, Grid};
-use oelung_lantern::{is_simple_char_press, ReceiveEvent};
+use oelung_lantern::{is_simple_char_press, is_simple_key_press, ReceiveEvent};
 use ropey::{Rope, RopeSlice};
 use smallvec::{smallvec, SmallVec};
 use smol_str::format_smolstr;
@@ -876,6 +880,10 @@ impl ReceiveEvent<event::Event, Option<Event>> for EventAggregator {
             (Self::SawZ, event) if is_simple_char_press(event, 'C') => {
                 *self = Self::Initial;
                 return Ok(Some(Event::FullyCloseFoldUnderCursor));
+            }
+            (_, event) if is_simple_key_press(event, KeyCode::Esc) => {
+                *self = Self::Initial;
+                return Ok(None);
             }
             _ => panic!("unexpected event"),
         }
