@@ -4,8 +4,8 @@ mod shared;
 
 use shared::run_interactive_test;
 
-#[test]
-fn test_fold_text() {
+#[tokio::test]
+async fn test_fold_text() -> Result<(), anyhow::Error> {
     run_interactive_test(
         "foo.rs",
         "",
@@ -20,5 +20,8 @@ fn test_fold_text() {
                 }
             "#
         ),
-    );
+    )
+    .await?;
+
+    Ok(())
 }

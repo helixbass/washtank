@@ -4,8 +4,8 @@ mod shared;
 
 use shared::run_interactive_test;
 
-#[test]
-fn test_initial_screen() {
+#[tokio::test]
+async fn test_initial_screen() -> Result<(), anyhow::Error> {
     run_interactive_test(
         "no_indentation.txt",
         "",
@@ -37,5 +37,8 @@ fn test_initial_screen() {
                 What a great day
             "#
         ),
-    );
+    )
+    .await?;
+
+    Ok(())
 }

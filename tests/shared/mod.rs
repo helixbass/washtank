@@ -1,40 +1,96 @@
-use std::env;
-use std::process::Command;
+use std::pin::Pin;
+use std::rc::Rc;
 
-use vt100::Screen;
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+use oelung::{soft, MemoryBackend, Renderer, RendererBuilder};
+use oelung_lantern::{generate_sender, mpsc::Sender, ReceiveEvent};
+use tokio::sync::mpsc::channel;
 
-pub fn run_interactive_test(file_name: &str, input: &str, expected_screen_state: &str) {
-    let path_to_editor_executable = env!("CARGO_BIN_EXE_washtank");
+use washtank::{editor, Args, Editor, EventAggregator};
 
-    // expects dtolnay/faketty to be available on the system I guess?
-    // Eg per its docs `cargo intall faketty` or whatever?
-    let output = Command::new("faketty")
-        .arg(path_to_editor_executable)
-        .arg(&format!("fixtures/{file_name}"))
-        .output()
-        .unwrap();
-    let mut stdout = &*output.stdout;
-    // this is maybe what it prints to clear the screen eg
-    // before quitting?
-    if stdout.ends_with(&[27, 91, 63, 49, 48, 52, 57, 108]) {
-        stdout = &stdout[..stdout.len() - 8];
+pub async fn run_interactive_test(
+    file_name: &str,
+    input: &str,
+    expected_screen_state: &str,
+) -> Result<(), anyhow::Error> {
+    let memory_backend = Rc::new(MemoryBackend::new(24, 80));
+
+    let mut renderer = RendererBuilder::default()
+        .backend(memory_backend.clone())
+        .build()?;
+
+    let (sender, mut receiver) = channel::<World>(100);
+
+    tokio::spawn({
+        let sender = CrosstermSender::from(sender.clone());
+        async move {
+            for ch in input.chars() {
+                sender
+                    .send(Event::Key(KeyEvent {
+                        code: KeyCode::Char(ch),
+                        modifiers: KeyModifiers::NONE,
+                        kind: KeyEventKind::Press,
+                        state: KeyEventState::NONE,
+                    }))
+                    .await;
+            }
+        }
+    });
+
+    let mut editor = Editor::try_new(
+        Args {
+            file_name: file_name.into(),
+        },
+        Box::new(EditorSender::from(sender.clone())),
+    )
+    .await?;
+
+    let mut event_aggregator = EventAggregator::default();
+
+    render_screen(&mut renderer, &editor)?;
+
+    while let Some(world) = receiver.recv().await {
+        let mut queued_effects: Vec<Pin<Box<dyn Future<Output = ()> + Send + 'static>>> = vec![];
+        match world {
+            World::Crossterm(event) => {
+                let editor_event =
+                    event_aggregator.receive(&event, |future| queued_effects.push(future))?;
+                if let Some(editor_event) = editor_event {
+                    editor.receive(&editor_event, |future| queued_effects.push(future))?;
+                    render_screen(&mut renderer, &editor)?;
+                }
+            }
+            World::Editor(editor::Happened::Quit) => break,
+        }
+        for effect in queued_effects {
+            tokio::spawn(effect);
+        }
     }
 
-    let mut parser = vt100::Parser::new(24, 80, 0);
-    parser.process(stdout);
-    assert_expected_screen_contents(&parser.screen(), expected_screen_state);
+    assert_expected_screen_contents(expected_screen_state, &memory_backend);
+
+    Ok(())
 }
 
-fn assert_expected_screen_contents(screen: &Screen, expected_screen_state: &str) {
+fn render_screen(renderer: &mut Renderer, editor: &Editor) -> Result<(), anyhow::Error> {
+    renderer.render(soft! {
+      %editor
+    })?;
+
+    Ok(())
+}
+
+enum World {
+    Crossterm(Event),
+    Editor(editor::Happened),
+}
+
+generate_sender!(World, Crossterm, Event);
+generate_sender!(World, Editor, editor::Happened);
+
+fn assert_expected_screen_contents(memory_backend: &MemoryBackend, expected_screen_state: &str) {
     let expected_screen_state = ExpectedScreenState::from(expected_screen_state);
-    assert_eq!(
-        screen
-            .contents()
-            .split("\n")
-            .map(|line| line[4..].to_owned())
-            .collect::<Vec<_>>(),
-        expected_screen_state.text_contents
-    );
+    assert_eq!(unimplemented!(), expected_screen_state.text_contents);
 }
 
 pub struct ExpectedScreenState {
