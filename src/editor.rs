@@ -291,19 +291,21 @@ impl<'a> ComponentInterface for &'a Editor {
                           soft! {
                               %Text children => {
                                   [
-                                      relative_line_number,
-                                      soft! {
+                                      Ok(relative_line_number.into_text_child()),
+                                      Ok(soft! {
                                           %Text " "
-                                      }
+                                      }.into_text_child())
                                   ].into_iter().chain(
-                                      line_chunks.into_iter().map(|line_chunk| {
-                                          soft! {
+                                      line_chunks.into_iter().map(|line_chunk| -> Result<_, anyhow::Error> {
+                                          Ok(soft! {
                                               %Text
                                                 text => &chunks[line_chunk.chunk_index][line_chunk.chunk_start_byte..line_chunk.chunk_end_byte]
-                                                color => self.tree_sitter_highlight_colors[line_chunk.highlight_type_index]
-                                          }
+                                                maybe_color => line_chunk.highlight_type_index.map(|highlight_type_index| {
+                                                    self.tree_sitter_highlight_colors[highlight_type_index]
+                                                })
+                                          }.into_text_child())
                                       })
-                                  ).collect()
+                                  ).collect::<Result<_, _>>()?
                               }
                           }
                       }
@@ -699,22 +701,22 @@ impl ComponentInterface for RelativeLineNumber {
                           [
                               soft! {
                                   %Text line_num_to_show
-                              }
+                              }.into_text_child()
                           ].into_iter().chain(
                               if num_remaining_columns > 0 {
                                   smallvec![
                                       soft! {
                                           %Text {
-                                              " ".repeat(num_remaining_columns)
+                                              " ".repeat(usize::from(num_remaining_columns))
                                           }
-                                      }
+                                      }.into_text_child()
                                   ]
                               } else {
-                                  smallvec![]
+                                  SmallVec::<_, 1>::default()
                               }
                           ).collect()
                       }
-                      color => color,
+                      color => color
                 }
             }
             RelativeOrCurrentLineNum::Relative(relative_line_num) => {
@@ -727,16 +729,16 @@ impl ComponentInterface for RelativeLineNumber {
                               smallvec![
                                   soft! {
                                       %Text {
-                                          " ".repeat(num_remaining_columns)
+                                          " ".repeat(usize::from(num_remaining_columns))
                                       }
-                                  }
+                                  }.into_text_child()
                               ]
                           } else {
-                              smallvec![]
-                          }.chain([
+                              SmallVec::<_, 1>::default()
+                          }.into_iter().chain([
                               soft! {
                                   %Text relative_line_num
-                              }
+                              }.into_text_child()
                           ]).collect()
                       }
                       color => color
