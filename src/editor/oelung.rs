@@ -31,6 +31,9 @@ impl<'a> ComponentInterface for &'a Editor {
                   self.current_file.rope().len_lines(),
                   self.cursor_position.column + 1,
               )
+              %CommandLine::new(
+                &self.mode
+              )
             ]
         })
     }
@@ -388,6 +391,41 @@ impl<'a> ComponentInterface for StatusLine<'a> {
               %Text self.column
             ]
             color => Color::AnsiValue(182)
+        })
+    }
+
+    fn height(&self) -> Option<u16> {
+        Some(1)
+    }
+}
+
+struct CommandLine<'a> {
+    pub mode: &'a Mode,
+}
+
+impl<'a> CommandLine<'a> {
+    pub fn new(mode: &'a Mode) -> Self {
+        Self { mode }
+    }
+}
+
+impl<'a> ComponentInterface for CommandLine<'a> {
+    fn render(&self, _grid: Grid) -> Result<Component<'_>, anyhow::Error> {
+        Ok(match self.mode {
+            Mode::ExCommand(ex_command) => match ex_command.is_empty() {
+                true => soft! {
+                    %Text ":"
+                },
+                false => soft! {
+                    %Text children => [
+                        %Text ":"
+                        %Text ex_command
+                    ]
+                },
+            },
+            _ => soft! {
+                %Text " "
+            },
         })
     }
 
