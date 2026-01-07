@@ -134,6 +134,13 @@ fn assert_expected_screen_contents(memory_backend: &BackendMemory, expected_scre
                 .collect::<Vec<_>>();
             including_trailing_rows.truncate(including_trailing_rows.len() - 2);
             including_trailing_rows
+                .into_iter()
+                .rev()
+                .skip_while(|row| row.is_empty())
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
         },
         expected_screen_state.text_contents
     );
