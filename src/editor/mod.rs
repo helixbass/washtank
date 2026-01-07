@@ -12,7 +12,7 @@ use futures::future::FutureExt;
 use oelung_lantern::mpsc::Sender;
 use ropey::{Rope, RopeSlice};
 use smallvec::SmallVec;
-use squalid::_d;
+use squalid::{EverythingExt, _d};
 use tokio::fs;
 
 use crate::{
@@ -218,11 +218,20 @@ impl Editor {
         }
     }
 
+    fn file_editor_grid_size(&self) -> Size {
+        self.size().thrush(|size| Size {
+            // TODO: this presumably would panic if trying to
+            // render in a terminal window less than 2 rows tall?
+            height: size.height - 2,
+            width: size.width,
+        })
+    }
+
     fn maybe_move_cursor_down_one_line(&mut self) {
         if self.is_cursor_on_last_file_line() {
             return;
         }
-        if self.cursor_position.row == self.size().height - 1 {
+        if self.cursor_position.row == self.file_editor_grid_size().height - 1 {
             let first_line_of_new_top_line = match self.top_line {
                 PrintedLine::Line(line) => line + 1,
                 PrintedLine::Fold(fold_index) => self.folds[fold_index].range.end,
