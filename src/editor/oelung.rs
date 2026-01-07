@@ -15,7 +15,8 @@ use super::{
 use crate::{Editor, Fold, LineNumber};
 
 impl<'a> ComponentInterface for &'a Editor {
-    fn render(&self, _grid: Grid) -> Result<Component<'_>, anyhow::Error> {
+    fn render(&self, grid: Grid) -> Result<Component<'_>, anyhow::Error> {
+        self.last_rendered_grid.set(Some(grid));
         let current_percent = ((f64::from(self.cursor_position.row)
             / f64::from(u32::try_from(self.current_file.rope().len_lines()).unwrap()))
             * 100.0) as u32;

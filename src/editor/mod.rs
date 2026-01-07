@@ -1,10 +1,11 @@
+use std::cell::Cell;
 use std::cmp;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::LazyLock;
 
-use ::oelung::{RowOrColumnNumber, Size};
+use ::oelung::{Grid, RowOrColumnNumber, Size};
 use anyhow;
 use crossterm::style::Color;
 use futures::future::FutureExt;
@@ -31,7 +32,7 @@ pub struct Editor {
     /// not in terms of file line # or actual terminal cursor
     /// position
     pub cursor_position: Position,
-    pub size: Size,
+    pub initial_terminal_size: Size,
     pub top_line: PrintedLine,
     pub printed_lines: Vec<PrintedLine>,
     pub printed_line_chunks: Vec<PrintedLineChunks>,
@@ -50,13 +51,14 @@ pub struct Editor {
     pub mode: Mode,
     pub sender: Box<dyn Sender<Happened>>,
     pub sticky_cursor_position_column: Option<RowOrColumnNumber>,
+    pub last_rendered_grid: Cell<Option<Grid>>,
 }
 
 impl Editor {
     pub async fn try_new(
         args: Args,
         sender: Box<dyn Sender<Happened>>,
-        size: Size,
+        initial_terminal_size: Size,
     ) -> Result<Self, anyhow::Error> {
         let rope = Rope::from_str(strip_trailing_newline(
             &fs::read_to_string(&args.file_name).await?,
@@ -107,7 +109,7 @@ impl Editor {
             current_file.rope().len_lines(),
             top_line,
             &folds,
-            size.height,
+            initial_terminal_size.height,
         );
         let printed_line_chunks = compute_printed_line_chunks(
             &printed_lines,
@@ -136,7 +138,7 @@ impl Editor {
         Ok(Self {
             current_file,
             cursor_position: _d(),
-            size,
+            initial_terminal_size,
             top_line,
             printed_lines,
             printed_line_chunks,
@@ -169,7 +171,18 @@ impl Editor {
             mode: Mode::Normal,
             sender,
             sticky_cursor_position_column: _d(),
+            last_rendered_grid: _d(),
         })
+    }
+
+    fn size(&self) -> Size {
+        match self.last_rendered_grid.get() {
+            Some(grid) => Size {
+                height: grid.height,
+                width: grid.width,
+            },
+            None => self.initial_terminal_size,
+        }
     }
 
     fn one_past_printed_line_line_number(&self, printed_line: &PrintedLine) -> usize {
@@ -209,7 +222,7 @@ impl Editor {
         if self.is_cursor_on_last_file_line() {
             return;
         }
-        if self.cursor_position.row == self.size.height - 1 {
+        if self.cursor_position.row == self.size().height - 1 {
             let first_line_of_new_top_line = match self.top_line {
                 PrintedLine::Line(line) => line + 1,
                 PrintedLine::Fold(fold_index) => self.folds[fold_index].range.end,
@@ -265,7 +278,7 @@ impl Editor {
             self.current_file.rope().len_lines(),
             self.top_line,
             &self.folds,
-            self.size.height,
+            self.size().height,
         );
     }
 
