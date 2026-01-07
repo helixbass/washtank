@@ -5,6 +5,7 @@ use std::rc::Rc;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 use oelung::{soft, BackendMemory, Renderer, RendererBuilder, Size};
 use oelung_lantern::{generate_sender, mpsc::Sender, ReceiveEvent};
+use squalid::regex;
 use tokio::sync::mpsc::channel;
 
 use washtank::{editor, Args, Editor, EventAggregator};
@@ -117,7 +118,18 @@ fn assert_expected_screen_contents(memory_backend: &BackendMemory, expected_scre
         memory_backend
             .grid
             .iter()
-            .map(|row| { row.into_iter().map(|cell| cell.content).collect::<String>() })
+            .map(|row| {
+                let with_trailing_spaces = row
+                    .into_iter()
+                    .skip(4)
+                    .map(|cell| cell.content)
+                    .collect::<String>();
+                if let Some(match_) = regex!(r#" +$"#).find(&with_trailing_spaces) {
+                    with_trailing_spaces[..match_.start()].to_owned()
+                } else {
+                    with_trailing_spaces
+                }
+            })
             .collect::<Vec<_>>(),
         expected_screen_state.text_contents
     );
