@@ -49,6 +49,14 @@ pub async fn run_interactive_test(
                     }))
                     .await;
             }
+            sender
+                .send(Event::Key(KeyEvent {
+                    code: KeyCode::Enter,
+                    modifiers: KeyModifiers::NONE,
+                    kind: KeyEventKind::Press,
+                    state: KeyEventState::NONE,
+                }))
+                .await;
         }
     });
 

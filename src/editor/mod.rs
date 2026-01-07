@@ -362,6 +362,7 @@ pub(crate) fn known_colors() -> &'static HashMap<String, Color> {
     &*KNOWN_COLORS
 }
 
+#[derive(Debug)]
 pub enum Event {
     MoveCursorDownNLines(u16),
     MoveCursorUpNLines(u16),
