@@ -115,22 +115,26 @@ generate_sender!(World, Editor, editor::Happened);
 fn assert_expected_screen_contents(memory_backend: &BackendMemory, expected_screen_state: &str) {
     let expected_screen_state = ExpectedScreenState::from(expected_screen_state);
     assert_eq!(
-        memory_backend
-            .grid
-            .iter()
-            .map(|row| {
-                let with_trailing_spaces = row
-                    .into_iter()
-                    .skip(4)
-                    .map(|cell| cell.content)
-                    .collect::<String>();
-                if let Some(match_) = regex!(r#" +$"#).find(&with_trailing_spaces) {
-                    with_trailing_spaces[..match_.start()].to_owned()
-                } else {
-                    with_trailing_spaces
-                }
-            })
-            .collect::<Vec<_>>(),
+        {
+            let mut including_trailing_rows = memory_backend
+                .grid
+                .iter()
+                .map(|row| {
+                    let with_trailing_spaces = row
+                        .into_iter()
+                        .skip(4)
+                        .map(|cell| cell.content)
+                        .collect::<String>();
+                    if let Some(match_) = regex!(r#" +$"#).find(&with_trailing_spaces) {
+                        with_trailing_spaces[..match_.start()].to_owned()
+                    } else {
+                        with_trailing_spaces
+                    }
+                })
+                .collect::<Vec<_>>();
+            including_trailing_rows.truncate(including_trailing_rows.len() - 2);
+            including_trailing_rows
+        },
         expected_screen_state.text_contents
     );
 }
