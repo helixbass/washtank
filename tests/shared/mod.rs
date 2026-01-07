@@ -16,7 +16,7 @@ pub async fn run_interactive_test(
     expected_screen_state: &str,
 ) -> Result<(), anyhow::Error> {
     let memory_backend = Rc::new(RefCell::new(BackendMemory::new(Size {
-        height: 24,
+        height: 26,
         width: 80,
     })));
 
