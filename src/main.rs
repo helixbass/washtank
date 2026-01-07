@@ -2,7 +2,7 @@ use std::pin::Pin;
 
 use clap::Parser;
 use crossterm::event::{Event, EventStream};
-use oelung::{soft, Renderer, RendererBuilder};
+use oelung::{soft, BackendInterface, Renderer, RendererBuilder};
 use oelung_lantern::{generate_sender, mpsc::Sender, ReceiveEvent};
 use tokio::sync::mpsc::channel;
 use tokio_stream::StreamExt;
@@ -20,7 +20,12 @@ async fn main() -> Result<(), anyhow::Error> {
     listen_to_crossterm_events(CrosstermSender::from(sender.clone()));
 
     let mut event_aggregator = EventAggregator::default();
-    let mut editor = Editor::try_new(args, Box::new(EditorSender::from(sender.clone()))).await?;
+    let mut editor = Editor::try_new(
+        args,
+        Box::new(EditorSender::from(sender.clone())),
+        renderer.backend.size()?,
+    )
+    .await?;
 
     render_screen(&mut renderer, &editor)?;
 

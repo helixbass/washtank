@@ -6,12 +6,12 @@ use std::sync::LazyLock;
 
 use ::oelung::{RowOrColumnNumber, Size};
 use anyhow;
-use crossterm::{style::Color, terminal::size};
+use crossterm::style::Color;
 use futures::future::FutureExt;
 use oelung_lantern::mpsc::Sender;
-use ropey::Rope;
+use ropey::{Rope, RopeSlice};
 use smallvec::SmallVec;
-use squalid::{EverythingExt, _d};
+use squalid::_d;
 use tokio::fs;
 
 use crate::{
@@ -49,12 +49,14 @@ pub struct Editor {
     pub max_folds: Vec<Fold>,
     pub mode: Mode,
     pub sender: Box<dyn Sender<Happened>>,
+    pub sticky_cursor_position_column: Option<RowOrColumnNumber>,
 }
 
 impl Editor {
     pub async fn try_new(
         args: Args,
         sender: Box<dyn Sender<Happened>>,
+        size: Size,
     ) -> Result<Self, anyhow::Error> {
         let rope = Rope::from_str(strip_trailing_newline(
             &fs::read_to_string(&args.file_name).await?,
@@ -101,10 +103,6 @@ impl Editor {
         } else {
             PrintedLine::Line(0)
         };
-        let size = size()?.thrush(|(columns, rows)| Size {
-            height: rows,
-            width: columns,
-        });
         let printed_lines = compute_printed_lines(
             current_file.rope().len_lines(),
             top_line,
@@ -170,23 +168,48 @@ impl Editor {
             max_folds,
             mode: Mode::Normal,
             sender,
+            sticky_cursor_position_column: _d(),
         })
     }
 
-    fn one_past_final_last_printed_row_line_number(&self) -> usize {
-        match self.printed_lines[self.printed_lines.len() - 1] {
-            PrintedLine::Fold(fold_index) => self.folds[fold_index].range.end,
+    fn one_past_printed_line_line_number(&self, printed_line: &PrintedLine) -> usize {
+        match printed_line {
+            PrintedLine::Fold(fold_index) => self.folds[*fold_index].range.end,
             PrintedLine::Line(line) => line + 1,
         }
     }
 
-    fn maybe_move_cursor_down_one_line(&mut self) {
-        if self.cursor_position.row == self.size.height - 1 {
-            if self.one_past_final_last_printed_row_line_number()
-                == self.current_file.rope().len_lines()
-            {
-                return;
+    fn one_past_final_last_printed_row_line_number(&self) -> usize {
+        self.one_past_printed_line_line_number(&self.printed_lines[self.printed_lines.len() - 1])
+    }
+
+    fn cursor_printed_line(&self) -> &PrintedLine {
+        &self.printed_lines[usize::from(self.cursor_position.row)]
+    }
+
+    fn is_cursor_on_last_file_line(&self) -> bool {
+        self.one_past_printed_line_line_number(self.cursor_printed_line())
+            == self.current_file.rope().len_lines()
+    }
+
+    fn set_allowed_cursor_column(&mut self) {
+        if matches!(self.cursor_printed_line(), PrintedLine::Fold(_)) {
+            self.cursor_position.column = 0;
+        } else {
+            if let Some(sticky_cursor_position_column) = self.sticky_cursor_position_column {
+                self.cursor_position.column = sticky_cursor_position_column;
             }
+            if self.cursor_position.column > self.max_allowed_column() {
+                self.cursor_position.column = self.max_allowed_column();
+            }
+        }
+    }
+
+    fn maybe_move_cursor_down_one_line(&mut self) {
+        if self.is_cursor_on_last_file_line() {
+            return;
+        }
+        if self.cursor_position.row == self.size.height - 1 {
             let first_line_of_new_top_line = match self.top_line {
                 PrintedLine::Line(line) => line + 1,
                 PrintedLine::Fold(fold_index) => self.folds[fold_index].range.end,
@@ -200,8 +223,10 @@ impl Editor {
                 None => PrintedLine::Line(first_line_of_new_top_line),
             };
             self.recompute_printed_lines_and_printed_line_chunks();
+            self.set_allowed_cursor_column();
         } else {
             self.cursor_position.row += 1;
+            self.set_allowed_cursor_column();
         }
     }
 
@@ -221,8 +246,10 @@ impl Editor {
                 None => PrintedLine::Line(top_line_start_line - 1),
             };
             self.recompute_printed_lines_and_printed_line_chunks();
+            self.set_allowed_cursor_column();
         } else {
             self.cursor_position.row -= 1;
+            self.set_allowed_cursor_column();
         }
     }
 
@@ -268,6 +295,17 @@ impl Editor {
             }
             .boxed()
         });
+    }
+
+    fn max_allowed_column(&self) -> u16 {
+        let cursor_line_num = *match self.cursor_printed_line() {
+            PrintedLine::Line(line_num) => line_num,
+            PrintedLine::Fold(_) => panic!("expected not to be called with fold"),
+        };
+        match line_len(&self.current_file.rope().line(cursor_line_num)) {
+            0 => 0,
+            line_len => u16::try_from(line_len).unwrap() - 1,
+        }
     }
 }
 
@@ -605,4 +643,13 @@ impl Mode {
 #[derive(Debug)]
 pub enum Happened {
     Quit,
+}
+
+pub fn line_len(line: &RopeSlice<'_>) -> usize {
+    let line_len = line.len_bytes();
+    match line.byte(line_len - 1) {
+        // \n
+        0x0A => line_len - 1,
+        _ => line_len,
+    }
 }

@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::rc::Rc;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-use oelung::{soft, BackendMemory, Renderer, RendererBuilder, Size};
+use oelung::{soft, BackendInterface, BackendMemory, Renderer, RendererBuilder, Size};
 use oelung_lantern::{generate_sender, mpsc::Sender, ReceiveEvent};
 use squalid::regex;
 use tokio::sync::mpsc::channel;
@@ -66,6 +66,7 @@ pub async fn run_interactive_test(
             file_name: format!("fixtures/{file_name}").into(),
         },
         Box::new(EditorSender::from(sender.clone())),
+        renderer.backend.size()?,
     )
     .await?;
 
