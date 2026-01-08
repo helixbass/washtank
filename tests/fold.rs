@@ -47,3 +47,25 @@ async fn test_cursor_on_fold() -> Result<(), anyhow::Error> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_cursor_in_unfolded_moves_to_fold_line_when_folding() -> Result<(), anyhow::Error> {
+    run_interactive_test(
+        "foo.rs",
+        "jzojjjjzc",
+        indoc!(
+            r#"
+                fn foo() {
+                <cursor/><color={Rgb(47, 47, 255)}>+-- 11 lines: let foo = "foo";</>
+                }
+
+                fn bar() {
+                <color={Rgb(47, 47, 255)}>+-- 11 lines: let bar = "bar";</>
+                }
+            "#
+        ),
+    )
+    .await?;
+
+    Ok(())
+}
