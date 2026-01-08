@@ -12,7 +12,7 @@ use futures::future::FutureExt;
 use oelung_lantern::mpsc::Sender;
 use ropey::{Rope, RopeSlice};
 use smallvec::SmallVec;
-use squalid::{EverythingExt, _d};
+use squalid::{BoolExt, EverythingExt, _d};
 use tokio::fs;
 
 use crate::{
@@ -53,6 +53,7 @@ pub struct Editor {
     pub sticky_cursor_position_column: Option<RowOrColumnNumber>,
     pub last_rendered_grid: Cell<Option<Grid>>,
     pub flex_grow: Option<f64>,
+    pub disallow_folding: bool,
 }
 
 impl Editor {
@@ -106,10 +107,11 @@ impl Editor {
         let folds = calculate_folds(&current_file_indents);
         let max_folds = folds.clone();
 
-        let top_line = if matches!(
-            folds.iter().next(),
-            Some(fold) if fold.range.start == 0
-        ) {
+        let top_line = if !config.disallow_folding
+            && matches!(
+                folds.iter().next(),
+                Some(fold) if fold.range.start == 0
+            ) {
             PrintedLine::Fold(0)
         } else {
             PrintedLine::Line(0)
@@ -119,6 +121,7 @@ impl Editor {
             top_line,
             &folds,
             initial_terminal_size.height,
+            config.disallow_folding,
         );
         let printed_line_chunks = compute_printed_line_chunks(
             &printed_lines,
@@ -182,6 +185,7 @@ impl Editor {
             sticky_cursor_position_column: _d(),
             last_rendered_grid: _d(),
             flex_grow: config.flex_grow,
+            disallow_folding: config.disallow_folding,
         })
     }
 
@@ -246,11 +250,11 @@ impl Editor {
                 PrintedLine::Line(line) => line + 1,
                 PrintedLine::Fold(fold_index) => self.folds[fold_index].range.end,
             };
-            self.top_line = match self
-                .folds
-                .iter()
-                .position(|fold| fold.range.start == first_line_of_new_top_line)
-            {
+            self.top_line = match (!self.disallow_folding).then_and(|| {
+                self.folds
+                    .iter()
+                    .position(|fold| fold.range.start == first_line_of_new_top_line)
+            }) {
                 Some(fold_index) => PrintedLine::Fold(fold_index),
                 None => PrintedLine::Line(first_line_of_new_top_line),
             };
@@ -269,11 +273,11 @@ impl Editor {
                 return;
             }
 
-            self.top_line = match self
-                .folds
-                .iter()
-                .position(|fold| fold.range.end == top_line_start_line - 1)
-            {
+            self.top_line = match (!self.disallow_folding).then_and(|| {
+                self.folds
+                    .iter()
+                    .position(|fold| fold.range.end == top_line_start_line - 1)
+            }) {
                 Some(fold_index) => PrintedLine::Fold(fold_index),
                 None => PrintedLine::Line(top_line_start_line - 1),
             };
@@ -322,6 +326,7 @@ impl Editor {
             self.top_line,
             &self.folds,
             self.size().height,
+            self.disallow_folding,
         );
     }
 
@@ -478,14 +483,17 @@ fn compute_printed_lines(
     top_line: PrintedLine,
     folds: &[Fold],
     height: u16,
+    disallow_folding: bool,
 ) -> Vec<PrintedLine> {
     let top_line = top_line.start_line(folds);
     assert!(top_line <= num_lines - 1);
 
     let mut current_line_num = top_line;
-    let mut next_eligible_fold_index = folds
-        .into_iter()
-        .position(|fold| fold.range.start >= top_line);
+    let mut next_eligible_fold_index = (!disallow_folding).then_and(|| {
+        folds
+            .into_iter()
+            .position(|fold| fold.range.start >= top_line)
+    });
     let mut ret: Vec<PrintedLine> = _d();
     for _ in 0..height {
         if current_line_num >= num_lines {

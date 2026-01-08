@@ -4,6 +4,7 @@ use crate::{Editor, IndentLevel, LineNumber, PrintedLine};
 
 impl Editor {
     pub fn fully_open_fold_under_cursor(&mut self) {
+        assert!(!self.disallow_folding);
         let PrintedLine::Fold(fold_index) =
             self.printed_lines[usize::from(self.cursor_position.row)]
         else {
@@ -14,6 +15,7 @@ impl Editor {
     }
 
     pub fn open_fold_under_cursor_one_level(&mut self) {
+        assert!(!self.disallow_folding);
         let PrintedLine::Fold(fold_index) =
             self.printed_lines[usize::from(self.cursor_position.row)]
         else {
@@ -40,6 +42,7 @@ impl Editor {
     }
 
     pub fn fully_close_fold_under_cursor(&mut self) {
+        assert!(!self.disallow_folding);
         let start_line =
             self.printed_lines[usize::from(self.cursor_position.row)].start_line(&self.folds);
 
@@ -103,6 +106,7 @@ impl Editor {
     }
 
     pub fn close_fold_under_cursor_one_level(&mut self) {
+        assert!(!self.disallow_folding);
         match self.printed_lines[usize::from(self.cursor_position.row)] {
             PrintedLine::Fold(fold_index) => {
                 if self.folds[fold_index].num_closes == self.folds[fold_index].full_num_indents {

@@ -73,18 +73,22 @@ impl ReceiveEvent<Event> for Editor {
                 Ok(())
             }
             Event::FullyOpenFoldUnderCursor => {
+                assert!(!self.disallow_folding);
                 self.fully_open_fold_under_cursor();
                 Ok(())
             }
             Event::OpenFoldUnderCursorOneLevel => {
+                assert!(!self.disallow_folding);
                 self.open_fold_under_cursor_one_level();
                 Ok(())
             }
             Event::FullyCloseFoldUnderCursor => {
+                assert!(!self.disallow_folding);
                 self.fully_close_fold_under_cursor();
                 Ok(())
             }
             Event::CloseFoldUnderCursorOneLevel => {
+                assert!(!self.disallow_folding);
                 self.close_fold_under_cursor_one_level();
                 Ok(())
             }
