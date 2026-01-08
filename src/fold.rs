@@ -52,13 +52,21 @@ impl Editor {
         };
 
         self.splice_in_new_fold(self.max_folds[fold_index].clone());
+        let cursor_line_fold_range_start = self.max_folds[fold_index].range.start;
 
         self.recompute_printed_lines_and_printed_line_chunks();
+        self.set_cursor_position_row_to_fold_starting_with(cursor_line_fold_range_start);
+    }
+
+    fn set_cursor_position_row_to_fold_starting_with(
+        &mut self,
+        cursor_line_fold_range_start: LineNumber,
+    ) {
         let new_cursor_position_row = self
             .printed_lines
             .iter()
             .position(|printed_line| {
-                printed_line.start_line(&self.folds) == self.max_folds[fold_index].range.start
+                printed_line.start_line(&self.folds) == cursor_line_fold_range_start
             })
             .unwrap();
         self.cursor_position.row = u16::try_from(new_cursor_position_row).unwrap();
@@ -101,12 +109,13 @@ impl Editor {
                     return;
                 }
                 self.folds.get_mut(fold_index).unwrap().num_closes += 1;
+                self.recompute_printed_lines_and_printed_line_chunks();
             }
             PrintedLine::Line(line_num) => {
                 let Some(innermost_max_fold) = self.find_innermost_max_fold(line_num) else {
                     return;
                 };
-                self.splice_in_new_fold(match innermost_max_fold {
+                let fold = match innermost_max_fold {
                     FoldOrNestedFold::Fold(fold) => fold.clone(),
                     FoldOrNestedFold::NestedFold(nested, parent_full_num_indents) => Fold {
                         range: nested.range,
@@ -115,11 +124,13 @@ impl Editor {
                         nested: nested.nested.clone(),
                         num_closes: 1,
                     },
-                });
+                };
+                let cursor_line_fold_range_start = fold.range.start;
+                self.splice_in_new_fold(fold);
+                self.recompute_printed_lines_and_printed_line_chunks();
+                self.set_cursor_position_row_to_fold_starting_with(cursor_line_fold_range_start);
             }
         }
-
-        self.recompute_printed_lines_and_printed_line_chunks();
     }
 
     fn find_innermost_max_fold(&self, line_num: usize) -> Option<FoldOrNestedFold<'_>> {
