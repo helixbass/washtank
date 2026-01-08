@@ -7,7 +7,7 @@ use oelung_lantern::{generate_sender, mpsc::Sender, ReceiveEvent};
 use tokio::sync::mpsc::channel;
 use tokio_stream::StreamExt;
 
-use washtank::{editor, Args, Editor, EventAggregator};
+use washtank::{editor, Args, Config, Editor, EventAggregator};
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
@@ -19,9 +19,10 @@ async fn main() -> Result<(), anyhow::Error> {
 
     listen_to_crossterm_events(CrosstermSender::from(sender.clone()));
 
-    let mut event_aggregator = EventAggregator::default();
+    let config: Config = args.into();
+    let mut event_aggregator = EventAggregator::new(&config);
     let mut editor = Editor::try_new(
-        &args.into(),
+        &config,
         Box::new(EditorSender::from(sender.clone())),
         renderer.backend.size()?,
     )

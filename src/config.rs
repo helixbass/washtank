@@ -13,6 +13,8 @@ pub struct Config {
     pub initial_file: InitialFile,
     #[builder(setter(strip_option), default)]
     pub flex_grow: Option<f64>,
+    #[builder(default)]
+    pub disallow_folding: bool,
 }
 
 impl From<Args> for Config {

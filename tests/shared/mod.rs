@@ -62,17 +62,18 @@ pub async fn run_interactive_test(
         }
     });
 
+    let config = ConfigBuilder::default()
+        .initial_file(InitialFile::Path(format!("fixtures/{file_name}").into()))
+        .build()
+        .unwrap();
     let mut editor = Editor::try_new(
-        &ConfigBuilder::default()
-            .initial_file(InitialFile::Path(format!("fixtures/{file_name}").into()))
-            .build()
-            .unwrap(),
+        &config,
         Box::new(EditorSender::from(sender.clone())),
         renderer.backend.size()?,
     )
     .await?;
 
-    let mut event_aggregator = EventAggregator::default();
+    let mut event_aggregator = EventAggregator::new(&config);
 
     render_screen(&mut renderer, &editor)?;
 
