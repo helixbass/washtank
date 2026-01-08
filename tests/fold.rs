@@ -25,3 +25,25 @@ async fn test_fold_text() -> Result<(), anyhow::Error> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_cursor_on_fold() -> Result<(), anyhow::Error> {
+    run_interactive_test(
+        "foo.rs",
+        "jjjjj",
+        indoc!(
+            r#"
+                fn foo() {
+                <color={Rgb(47, 47, 255)}>+-- 11 lines: let foo = "foo";</>
+                }
+
+                fn bar() {
+                <cursor/><color={Rgb(47, 47, 255)}>+-- 11 lines: let bar = "bar";</>
+                }
+            "#
+        ),
+    )
+    .await?;
+
+    Ok(())
+}
