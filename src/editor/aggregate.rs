@@ -33,6 +33,7 @@ pub enum State {
     Initial,
     SawZ,
     InExCommandMode,
+    InInsertMode,
 }
 
 impl ReceiveEvent<event::Event, Option<Event>> for EventAggregator {
@@ -101,6 +102,15 @@ impl ReceiveEvent<event::Event, Option<Event>> for EventAggregator {
             (State::InExCommandMode, event) if is_simple_key_press(event, KeyCode::Enter) => {
                 self.state = State::Initial;
                 return Ok(Some(Event::FinishExCommand));
+            }
+            (State::Initial, event) if is_simple_char_press(event, 'i') => {
+                self.state = State::InInsertMode;
+                return Ok(Some(Event::GoIntoInsertMode));
+            }
+            (State::InInsertMode, event) if is_any_simple_char_press(event).is_some() => {
+                return Ok(Some(Event::InsertChar(
+                    is_any_simple_char_press(event).unwrap(),
+                )));
             }
             _ => panic!("unexpected event"),
         }

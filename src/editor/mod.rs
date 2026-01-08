@@ -387,6 +387,11 @@ impl Editor {
             line_len => u16::try_from(line_len).unwrap() - 1,
         }
     }
+
+    fn insert_char(&mut self, ch: char) {
+        let offset = get_char_offset(self.current_file.rope(), self.cursor_position);
+        self.current_file.rope_mut().insert_char(offset, ch);
+    }
 }
 
 pub enum OpenFile {
@@ -399,6 +404,13 @@ impl OpenFile {
         match self {
             Self::Anonymous(file) => &file.rope,
             Self::Named(file) => &file.rope,
+        }
+    }
+
+    pub fn rope_mut(&mut self) -> &mut Rope {
+        match self {
+            Self::Anonymous(file) => &mut file.rope,
+            Self::Named(file) => &mut file.rope,
         }
     }
 }
@@ -419,7 +431,7 @@ pub struct OpenFileNamed {
     pub path: PathBuf,
 }
 
-#[derive(Default)]
+#[derive(Copy, Clone, Default)]
 pub struct Position {
     pub row: RowOrColumnNumber,
     pub column: RowOrColumnNumber,
@@ -496,6 +508,8 @@ pub enum Event {
     FinishExCommand,
     MoveCursorToBeginningOfLine,
     MoveCursorToEndOfLine,
+    GoIntoInsertMode,
+    InsertChar(char),
     // Lsp(LspIncomingMessage),
 }
 
@@ -739,4 +753,9 @@ pub fn line_len(line: &RopeSlice<'_>) -> usize {
         0x0A => line_len - 1,
         _ => line_len,
     }
+}
+
+fn get_char_offset(rope: &Rope, position: Position) -> usize {
+    let beginning_of_line = rope.line_to_char(usize::from(position.row));
+    beginning_of_line + usize::from(position.column)
 }

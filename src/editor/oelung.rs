@@ -119,6 +119,14 @@ impl ReceiveEvent<Event> for Editor {
                 self.finish_ex_command(queue_effect);
                 Ok(())
             }
+            Event::GoIntoInsertMode => {
+                self.mode = Mode::Insert;
+                Ok(())
+            }
+            Event::InsertChar(ch) => {
+                self.insert_char(*ch);
+                Ok(())
+            }
         }
     }
 }
