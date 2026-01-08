@@ -1,9 +1,7 @@
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::PathBuf;
 
-use clap::Parser;
-
+mod config;
 pub mod editor;
 mod fold;
 mod indent;
@@ -11,6 +9,7 @@ mod jsonrpc;
 mod lsp;
 pub mod tree_sitter;
 
+pub use config::{Args, Config, InitialFile};
 pub use editor::{Editor, EventAggregator, PrintedLine};
 pub use fold::{calculate_folds, Fold, FoldIndex};
 pub use indent::{calculate_indents, IndentLevel};
@@ -37,9 +36,4 @@ pub fn log(str: &str) {
         .unwrap();
 
     writeln!(file, "{str}").unwrap();
-}
-
-#[derive(Parser)]
-pub struct Args {
-    pub file_name: PathBuf,
 }

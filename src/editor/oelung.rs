@@ -38,6 +38,10 @@ impl<'a> ComponentInterface for &'a Editor {
             ]
         })
     }
+
+    fn flex_grow(&self) -> Option<f64> {
+        self.flex_grow
+    }
 }
 
 impl ReceiveEvent<Event> for Editor {

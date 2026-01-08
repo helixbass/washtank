@@ -18,7 +18,7 @@ use tokio::fs;
 use crate::{
     calculate_folds, calculate_indents, strip_trailing_newline,
     tree_sitter::{self as tree_sitter_mod, calculate_highlights},
-    Args, Fold, FoldIndex, IndentLevel, LineNumber, TreeSitterHighlight,
+    Config, Fold, FoldIndex, IndentLevel, InitialFile, LineNumber, TreeSitterHighlight,
 };
 
 mod aggregate;
@@ -52,21 +52,30 @@ pub struct Editor {
     pub sender: Box<dyn Sender<Happened>>,
     pub sticky_cursor_position_column: Option<RowOrColumnNumber>,
     pub last_rendered_grid: Cell<Option<Grid>>,
+    pub flex_grow: Option<f64>,
 }
 
 impl Editor {
     pub async fn try_new(
-        args: Args,
+        config: &Config,
         sender: Box<dyn Sender<Happened>>,
         initial_terminal_size: Size,
     ) -> Result<Self, anyhow::Error> {
-        let rope = Rope::from_str(strip_trailing_newline(
-            &fs::read_to_string(&args.file_name).await?,
-        ));
-        let current_file = OpenFile::Named(OpenFileNamed {
-            rope,
-            path: args.file_name,
-        });
+        let current_file = match &config.initial_file {
+            InitialFile::Path(file_name) => {
+                let rope = Rope::from_str(strip_trailing_newline(
+                    &fs::read_to_string(file_name).await?,
+                ));
+                OpenFile::Named(OpenFileNamed {
+                    rope,
+                    path: file_name.clone(),
+                })
+            }
+            InitialFile::Anonymous(contents) => {
+                let rope = Rope::from_str(strip_trailing_newline(contents));
+                OpenFile::Anonymous(OpenFileAnonymous { rope })
+            }
+        };
 
         let mut tree_sitter_parser = {
             let mut parser = tree_sitter::Parser::new();
@@ -172,6 +181,7 @@ impl Editor {
             sender,
             sticky_cursor_position_column: _d(),
             last_rendered_grid: _d(),
+            flex_grow: config.flex_grow,
         })
     }
 
