@@ -11,7 +11,7 @@ async fn test_initial_screen() -> Result<(), anyhow::Error> {
         "",
         indoc!(
             r#"
-                Hello world
+                <cursor/>Hello world
                 What a great day
 
                 Hello world
