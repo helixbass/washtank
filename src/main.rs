@@ -21,7 +21,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     let mut event_aggregator = EventAggregator::default();
     let mut editor = Editor::try_new(
-        args,
+        &args.into(),
         Box::new(EditorSender::from(sender.clone())),
         renderer.backend.size()?,
     )

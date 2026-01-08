@@ -11,7 +11,7 @@ pub struct Args {
 #[derive(Builder)]
 pub struct Config {
     pub initial_file: InitialFile,
-    #[builder(setter(strip_option))]
+    #[builder(setter(strip_option), default)]
     pub flex_grow: Option<f64>,
 }
 

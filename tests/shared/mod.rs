@@ -9,7 +9,7 @@ use oelung_lantern::{
 };
 use tokio::sync::mpsc::channel;
 
-use washtank::{editor, Args, Editor, EventAggregator};
+use washtank::{editor, ConfigBuilder, Editor, EventAggregator, InitialFile};
 
 pub async fn run_interactive_test(
     file_name: &str,
@@ -63,9 +63,10 @@ pub async fn run_interactive_test(
     });
 
     let mut editor = Editor::try_new(
-        Args {
-            file_name: format!("fixtures/{file_name}").into(),
-        },
+        &ConfigBuilder::default()
+            .initial_file(InitialFile::Path(format!("fixtures/{file_name}").into()))
+            .build()
+            .unwrap(),
         Box::new(EditorSender::from(sender.clone())),
         renderer.backend.size()?,
     )

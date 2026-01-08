@@ -9,7 +9,7 @@ mod jsonrpc;
 mod lsp;
 pub mod tree_sitter;
 
-pub use config::{Args, Config, InitialFile};
+pub use config::{Args, Config, ConfigBuilder, InitialFile};
 pub use editor::{Editor, EventAggregator, PrintedLine};
 pub use fold::{calculate_folds, Fold, FoldIndex};
 pub use indent::{calculate_indents, IndentLevel};
