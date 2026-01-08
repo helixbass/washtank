@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::rc::Rc;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
-use oelung::{soft, BackendInterface, BackendMemory, Renderer, RendererBuilder, Size};
+use oelung::{soft, BackendInterface, BackendMemory, Position, Renderer, RendererBuilder, Size};
 use oelung_lantern::{
     assert_expected_screen_contents_rendered_grid, generate_sender, mpsc::Sender, ReceiveEvent,
 };
@@ -117,14 +117,20 @@ generate_sender!(World, Editor, editor::Happened);
 fn assert_expected_screen_contents(memory_backend: &BackendMemory, expected_screen_state: &str) {
     let grid = &memory_backend.grid;
     let total_grid_height = grid.len();
+    let num_relative_line_num_plus_padding_columns: u16 = 4;
     let grid = grid
         .into_iter()
         .take(total_grid_height - 2)
-        .map(|row| row[4..].to_owned())
+        .map(|row| row[usize::from(num_relative_line_num_plus_padding_columns)..].to_owned())
         .collect::<Vec<_>>();
     assert_expected_screen_contents_rendered_grid(
         &grid,
-        memory_backend.current_cursor_position(),
+        memory_backend
+            .current_cursor_position()
+            .map(|cursor_position| Position {
+                row: cursor_position.row,
+                column: cursor_position.column - num_relative_line_num_plus_padding_columns,
+            }),
         expected_screen_state,
     );
 }
