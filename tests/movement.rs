@@ -276,3 +276,42 @@ async fn test_disallows_cursoring_past_beginning_of_line() -> Result<(), anyhow:
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_0_brings_to_beginning_of_line() -> Result<(), anyhow::Error> {
+    run_interactive_test(
+        "no_indentation.txt",
+        "lllll0",
+        indoc!(
+            r#"
+                <cursor/>Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Goodbye
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Goodbye
+
+                Hello world
+                What a great day
+            "#
+        ),
+    )
+    .await?;
+
+    Ok(())
+}
