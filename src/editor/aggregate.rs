@@ -14,6 +14,7 @@ use crate::Config;
 pub struct EventAggregator {
     pub state: State,
     pub disallow_folding: bool,
+    pub disallow_ex_command_mode: bool,
 }
 
 impl EventAggregator {
@@ -21,6 +22,7 @@ impl EventAggregator {
         Self {
             state: _d(),
             disallow_folding: config.disallow_folding,
+            disallow_ex_command_mode: config.disallow_ex_command_mode,
         }
     }
 }
@@ -85,7 +87,9 @@ impl ReceiveEvent<event::Event, Option<Event>> for EventAggregator {
                 self.state = State::Initial;
                 return Ok(Some(Event::GoIntoNormalMode));
             }
-            (State::Initial, event) if is_simple_char_press(event, ':') => {
+            (State::Initial, event)
+                if is_simple_char_press(event, ':') && !self.disallow_ex_command_mode =>
+            {
                 self.state = State::InExCommandMode;
                 return Ok(Some(Event::GoIntoExCommandMode));
             }

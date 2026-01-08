@@ -15,6 +15,8 @@ pub struct Config {
     pub flex_grow: Option<f64>,
     #[builder(default)]
     pub disallow_folding: bool,
+    #[builder(default)]
+    pub disallow_ex_command_mode: bool,
 }
 
 impl From<Args> for Config {

@@ -105,14 +105,17 @@ impl ReceiveEvent<Event> for Editor {
                 Ok(())
             }
             Event::GoIntoExCommandMode => {
+                assert!(!self.disallow_ex_command_mode);
                 self.mode = Mode::ExCommand(_d());
                 Ok(())
             }
             Event::ExCommandChar(ch) => {
+                assert!(!self.disallow_ex_command_mode);
                 self.mode.as_ex_command_mut().push(*ch);
                 Ok(())
             }
             Event::FinishExCommand => {
+                assert!(!self.disallow_ex_command_mode);
                 self.finish_ex_command(queue_effect);
                 Ok(())
             }

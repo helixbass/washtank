@@ -54,6 +54,7 @@ pub struct Editor {
     pub last_rendered_grid: Cell<Option<Grid>>,
     pub flex_grow: Option<f64>,
     pub disallow_folding: bool,
+    pub disallow_ex_command_mode: bool,
 }
 
 impl Editor {
@@ -186,6 +187,7 @@ impl Editor {
             last_rendered_grid: _d(),
             flex_grow: config.flex_grow,
             disallow_folding: config.disallow_folding,
+            disallow_ex_command_mode: config.disallow_ex_command_mode,
         })
     }
 
@@ -361,6 +363,7 @@ impl Editor {
         &mut self,
         mut queue_effect: TQueueEffect,
     ) {
+        assert!(!self.disallow_ex_command_mode);
         if self.mode.as_ex_command() != "q" {
             panic!("only support `:q` currently");
         }
