@@ -101,6 +101,11 @@ impl ReceiveEvent<Event> for Editor {
                 Ok(())
             }
             Event::GoIntoNormalMode => {
+                if self.mode == Mode::Insert {
+                    if self.cursor_position.column > 0 {
+                        self.cursor_position.column -= 1;
+                    }
+                }
                 self.mode = Mode::Normal;
                 Ok(())
             }

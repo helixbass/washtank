@@ -720,7 +720,7 @@ fn compute_printed_line_chunks(
     }).collect()
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Mode {
     Normal,
     ExCommand(String),
