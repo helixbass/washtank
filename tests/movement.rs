@@ -120,3 +120,81 @@ async fn test_move_cursor_right() -> Result<(), anyhow::Error> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_move_cursor_left() -> Result<(), anyhow::Error> {
+    run_interactive_test(
+        "no_indentation.txt",
+        "lllh",
+        indoc!(
+            r#"
+                He<cursor/>llo world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Goodbye
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Goodbye
+
+                Hello world
+                What a great day
+            "#
+        ),
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_remembers_column_when_moving_to_a_new_line() -> Result<(), anyhow::Error> {
+    run_interactive_test(
+        "no_indentation.txt",
+        "llj",
+        indoc!(
+            r#"
+                Hello world
+                Wh<cursor/>at a great day
+
+                Hello world
+                What a great day
+
+                Goodbye
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Goodbye
+
+                Hello world
+                What a great day
+            "#
+        ),
+    )
+    .await?;
+
+    Ok(())
+}
