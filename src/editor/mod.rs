@@ -391,6 +391,7 @@ impl Editor {
     fn insert_char(&mut self, ch: char) {
         let offset = get_char_offset(self.current_file.rope(), self.cursor_position);
         self.current_file.rope_mut().insert_char(offset, ch);
+        self.cursor_position.column += 1;
         self.recompute_printed_lines_and_printed_line_chunks();
     }
 }
