@@ -13,9 +13,10 @@ use washtank::{editor, ConfigBuilder, Editor, EventAggregator, InitialFile};
 
 pub async fn run_interactive_test(
     file_name: &str,
-    input: &str,
+    input: impl Into<Input>,
     expected_screen_state: &str,
 ) -> Result<(), anyhow::Error> {
+    let input = input.into();
     let memory_backend = Rc::new(RefCell::new(BackendMemory::new(Size {
         height: 26,
         width: 80,
@@ -29,17 +30,9 @@ pub async fn run_interactive_test(
 
     tokio::spawn({
         let sender = CrosstermSender::from(sender.clone());
-        let input = input.to_owned();
         async move {
-            for ch in input.chars() {
-                sender
-                    .send(Event::Key(KeyEvent {
-                        code: KeyCode::Char(ch),
-                        modifiers: KeyModifiers::NONE,
-                        kind: KeyEventKind::Press,
-                        state: KeyEventState::NONE,
-                    }))
-                    .await;
+            for event in input.events {
+                sender.send(event).await;
             }
             for ch in ":q".chars() {
                 sender
@@ -135,4 +128,41 @@ fn assert_expected_screen_contents(memory_backend: &BackendMemory, expected_scre
             }),
         expected_screen_state,
     );
+}
+
+pub struct Input {
+    pub events: Vec<Event>,
+}
+
+impl From<Vec<Event>> for Input {
+    fn from(value: Vec<Event>) -> Self {
+        Self { events: value }
+    }
+}
+
+impl<'a> From<&'a str> for Input {
+    fn from(value: &'a str) -> Self {
+        Self {
+            events: value.chars().map(char_event).collect(),
+        }
+    }
+}
+
+pub fn char_event(ch: char) -> Event {
+    Event::Key(KeyEvent {
+        code: KeyCode::Char(ch),
+        modifiers: KeyModifiers::NONE,
+        kind: KeyEventKind::Press,
+        state: KeyEventState::NONE,
+    })
+}
+
+#[allow(dead_code)]
+pub fn esc_event() -> Event {
+    Event::Key(KeyEvent {
+        code: KeyCode::Esc,
+        modifiers: KeyModifiers::NONE,
+        kind: KeyEventKind::Press,
+        state: KeyEventState::NONE,
+    })
 }

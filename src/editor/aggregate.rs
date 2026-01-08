@@ -27,7 +27,7 @@ impl EventAggregator {
     }
 }
 
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Debug, Default)]
 pub enum State {
     #[default]
     Initial,
