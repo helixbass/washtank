@@ -11,7 +11,7 @@ async fn test_fold_text() -> Result<(), anyhow::Error> {
         "",
         indoc!(
             r#"
-                fn foo() {
+                <cursor/>fn foo() {
                 <color={Rgb(47, 47, 255)}>+-- 11 lines: let foo = "foo";</>
                 }
 

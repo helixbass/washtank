@@ -122,5 +122,9 @@ fn assert_expected_screen_contents(memory_backend: &BackendMemory, expected_scre
         .take(total_grid_height - 2)
         .map(|row| row[4..].to_owned())
         .collect::<Vec<_>>();
-    assert_expected_screen_contents_rendered_grid(&grid, expected_screen_state);
+    assert_expected_screen_contents_rendered_grid(
+        &grid,
+        memory_backend.current_cursor_position(),
+        expected_screen_state,
+    );
 }
