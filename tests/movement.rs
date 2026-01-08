@@ -42,3 +42,42 @@ async fn test_initial_screen() -> Result<(), anyhow::Error> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_move_cursor_down() -> Result<(), anyhow::Error> {
+    run_interactive_test(
+        "no_indentation.txt",
+        "j",
+        indoc!(
+            r#"
+                Hello world
+                <cursor/>What a great day
+
+                Hello world
+                What a great day
+
+                Goodbye
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Goodbye
+
+                Hello world
+                What a great day
+            "#
+        ),
+    )
+    .await?;
+
+    Ok(())
+}
