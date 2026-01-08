@@ -12,11 +12,11 @@ async fn test_fold_text() -> Result<(), anyhow::Error> {
         indoc!(
             r#"
                 fn foo() {
-                +-- 11 lines: let foo = "foo";
+                <color={Rgb(47, 47, 255)}>+-- 11 lines: let foo = "foo";</>
                 }
 
                 fn bar() {
-                +-- 11 lines: let bar = "bar";
+                <color={Rgb(47, 47, 255)}>+-- 11 lines: let bar = "bar";</>
                 }
             "#
         ),

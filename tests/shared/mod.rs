@@ -4,8 +4,9 @@ use std::rc::Rc;
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
 use oelung::{soft, BackendInterface, BackendMemory, Renderer, RendererBuilder, Size};
-use oelung_lantern::{generate_sender, mpsc::Sender, ReceiveEvent};
-use squalid::regex;
+use oelung_lantern::{
+    assert_expected_screen_contents_rendered_grid, generate_sender, mpsc::Sender, ReceiveEvent,
+};
 use tokio::sync::mpsc::channel;
 
 use washtank::{editor, Args, Editor, EventAggregator};
@@ -114,60 +115,12 @@ generate_sender!(World, Crossterm, Event);
 generate_sender!(World, Editor, editor::Happened);
 
 fn assert_expected_screen_contents(memory_backend: &BackendMemory, expected_screen_state: &str) {
-    let expected_screen_state = ExpectedScreenState::from(expected_screen_state);
-    assert_eq!(
-        {
-            let mut including_trailing_rows = memory_backend
-                .grid
-                .iter()
-                .map(|row| {
-                    let with_trailing_spaces = row
-                        .into_iter()
-                        .skip(4)
-                        .map(|cell| cell.content)
-                        .collect::<String>();
-                    if let Some(match_) = regex!(r#" +$"#).find(&with_trailing_spaces) {
-                        with_trailing_spaces[..match_.start()].to_owned()
-                    } else {
-                        with_trailing_spaces
-                    }
-                })
-                .collect::<Vec<_>>();
-            including_trailing_rows.truncate(including_trailing_rows.len() - 2);
-            including_trailing_rows
-                .into_iter()
-                .rev()
-                .skip_while(|row| row.is_empty())
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect::<Vec<_>>()
-        },
-        expected_screen_state.text_contents
-    );
-}
-
-pub struct ExpectedScreenState {
-    pub text_contents: Vec<String>,
-}
-
-impl From<&str> for ExpectedScreenState {
-    fn from(value: &str) -> Self {
-        Self {
-            text_contents: strip_trailing_newline(value)
-                .split("\n")
-                .map(ToOwned::to_owned)
-                .collect(),
-        }
-    }
-}
-
-// TODO: share this with washtank? Eg change to a workspace
-// with a shared `shared` crate?
-pub fn strip_trailing_newline(file_contents: &str) -> &str {
-    if file_contents.ends_with("\n") {
-        &file_contents[..file_contents.len() - 1]
-    } else {
-        file_contents
-    }
+    let grid = &memory_backend.grid;
+    let total_grid_height = grid.len();
+    let grid = grid
+        .into_iter()
+        .take(total_grid_height - 2)
+        .map(|row| row[4..].to_owned())
+        .collect::<Vec<_>>();
+    assert_expected_screen_contents_rendered_grid(&grid, expected_screen_state);
 }
