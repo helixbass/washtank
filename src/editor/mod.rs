@@ -515,6 +515,28 @@ pub enum Event {
     // Lsp(LspIncomingMessage),
 }
 
+impl Event {
+    pub fn is_file_contents_mutating(&self) -> bool {
+        match self {
+            Self::MoveCursorDownNLines(_)
+            | Self::MoveCursorUpNLines(_)
+            | Self::MoveCursorRightNColumns(_)
+            | Self::MoveCursorLeftNColumns(_)
+            | Self::FullyOpenFoldUnderCursor
+            | Self::OpenFoldUnderCursorOneLevel
+            | Self::FullyCloseFoldUnderCursor
+            | Self::CloseFoldUnderCursorOneLevel
+            | Self::GoIntoNormalMode
+            | Self::GoIntoExCommandMode
+            | Self::ExCommandChar(_)
+            | Self::MoveCursorToBeginningOfLine
+            | Self::MoveCursorToEndOfLine
+            | Self::GoIntoInsertMode => false,
+            Self::InsertChar(_) | Self::FinishExCommand => true,
+        }
+    }
+}
+
 fn compute_printed_lines(
     num_lines: usize,
     top_line: PrintedLine,
