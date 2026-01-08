@@ -275,6 +275,30 @@ impl Editor {
         }
     }
 
+    fn maybe_move_cursor_right_one_column(&mut self) {
+        if matches!(self.cursor_printed_line(), PrintedLine::Fold(_)) {
+            panic!("don't currently support left/right movement on fold line");
+        }
+        if self.cursor_position.column < self.max_allowed_column() {
+            self.cursor_position.column += 1;
+            self.remember_sticky_cursor_position_column();
+        }
+    }
+
+    fn maybe_move_cursor_left_one_column(&mut self) {
+        if matches!(self.cursor_printed_line(), PrintedLine::Fold(_)) {
+            panic!("don't currently support left/right movement on fold line");
+        }
+        if self.cursor_position.column > 0 {
+            self.cursor_position.column -= 1;
+            self.remember_sticky_cursor_position_column();
+        }
+    }
+
+    fn remember_sticky_cursor_position_column(&mut self) {
+        self.sticky_cursor_position_column = Some(self.cursor_position.column);
+    }
+
     fn num_relative_line_number_columns(&self) -> RowOrColumnNumber {
         cmp::max(
             3,
@@ -426,6 +450,8 @@ pub(crate) fn known_colors() -> &'static HashMap<String, Color> {
 pub enum Event {
     MoveCursorDownNLines(u16),
     MoveCursorUpNLines(u16),
+    MoveCursorRightNColumns(u16),
+    MoveCursorLeftNColumns(u16),
     FullyOpenFoldUnderCursor,
     OpenFoldUnderCursorOneLevel,
     FullyCloseFoldUnderCursor,

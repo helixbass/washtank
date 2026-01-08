@@ -58,6 +58,16 @@ impl ReceiveEvent<Event> for Editor {
                 self.maybe_move_cursor_up_one_line();
                 Ok(())
             }
+            Event::MoveCursorRightNColumns(n) => {
+                assert_eq!(*n, 1);
+                self.maybe_move_cursor_right_one_column();
+                Ok(())
+            }
+            Event::MoveCursorLeftNColumns(n) => {
+                assert_eq!(*n, 1);
+                self.maybe_move_cursor_left_one_column();
+                Ok(())
+            }
             Event::FullyOpenFoldUnderCursor => {
                 self.fully_open_fold_under_cursor();
                 Ok(())

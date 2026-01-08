@@ -30,6 +30,12 @@ impl ReceiveEvent<event::Event, Option<Event>> for EventAggregator {
             (Self::Initial, event) if is_simple_char_press(event, 'k') => {
                 return Ok(Some(Event::MoveCursorUpNLines(1)));
             }
+            (Self::Initial, event) if is_simple_char_press(event, 'l') => {
+                return Ok(Some(Event::MoveCursorRightNColumns(1)));
+            }
+            (Self::Initial, event) if is_simple_char_press(event, 'h') => {
+                return Ok(Some(Event::MoveCursorLeftNColumns(1)));
+            }
             (Self::Initial, event) if is_simple_char_press(event, 'z') => {
                 *self = Self::SawZ;
                 return Ok(None);
