@@ -76,6 +76,10 @@ impl ReceiveEvent<Event> for Editor {
                 self.move_cursor_to_beginning_of_line();
                 Ok(())
             }
+            Event::MoveCursorToEndOfLine => {
+                self.move_cursor_to_end_of_line();
+                Ok(())
+            }
             Event::FullyOpenFoldUnderCursor => {
                 assert!(!self.disallow_folding);
                 self.fully_open_fold_under_cursor();

@@ -56,6 +56,9 @@ impl ReceiveEvent<event::Event, Option<Event>> for EventAggregator {
             (State::Initial, event) if is_simple_char_press(event, '0') => {
                 return Ok(Some(Event::MoveCursorToBeginningOfLine));
             }
+            (State::Initial, event) if is_simple_char_press(event, '$') => {
+                return Ok(Some(Event::MoveCursorToEndOfLine));
+            }
             (State::Initial, event)
                 if is_simple_char_press(event, 'z') && !self.disallow_folding =>
             {

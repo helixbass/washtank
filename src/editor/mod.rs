@@ -317,6 +317,14 @@ impl Editor {
         self.remember_sticky_cursor_position_column();
     }
 
+    fn move_cursor_to_end_of_line(&mut self) {
+        if matches!(self.cursor_printed_line(), PrintedLine::Fold(_)) {
+            panic!("don't currently support left/right movement on fold line");
+        }
+        self.cursor_position.column = self.max_allowed_column();
+        self.remember_sticky_cursor_position_column();
+    }
+
     fn remember_sticky_cursor_position_column(&mut self) {
         self.sticky_cursor_position_column = Some(self.cursor_position.column);
     }
@@ -484,6 +492,7 @@ pub enum Event {
     ExCommandChar(char),
     FinishExCommand,
     MoveCursorToBeginningOfLine,
+    MoveCursorToEndOfLine,
     // Lsp(LspIncomingMessage),
 }
 
