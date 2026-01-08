@@ -198,3 +198,81 @@ async fn test_remembers_column_when_moving_to_a_new_line() -> Result<(), anyhow:
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_disallows_cursoring_past_end_of_line() -> Result<(), anyhow::Error> {
+    run_interactive_test(
+        "no_indentation.txt",
+        "lllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll",
+        indoc!(
+            r#"
+                Hello worl<cursor/>d
+                What a great day
+
+                Hello world
+                What a great day
+
+                Goodbye
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Goodbye
+
+                Hello world
+                What a great day
+            "#
+        ),
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_disallows_cursoring_past_beginning_of_line() -> Result<(), anyhow::Error> {
+    run_interactive_test(
+        "no_indentation.txt",
+        "lhhhhhhhh",
+        indoc!(
+            r#"
+                <cursor/>Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Goodbye
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Goodbye
+
+                Hello world
+                What a great day
+            "#
+        ),
+    )
+    .await?;
+
+    Ok(())
+}
