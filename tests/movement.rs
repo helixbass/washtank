@@ -393,3 +393,47 @@ async fn test_move_cursor_down_multiple() -> Result<(), anyhow::Error> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_move_cursor_down_multiple_last_line_above_bottom_line() -> Result<(), anyhow::Error> {
+    run_interactive_test(
+        "foo.rs",
+        "8j",
+        indoc!(
+            r#"
+                fn foo() {
+                <color={Rgb(47, 47, 255)}>+-- 11 lines: let foo = "foo";</>
+                }
+
+                fn bar() {
+                <color={Rgb(47, 47, 255)}>+-- 11 lines: let bar = "bar";</>
+                <cursor/>}
+            "#
+        ),
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_move_cursor_down_multiple_already_on_last_line() -> Result<(), anyhow::Error> {
+    run_interactive_test(
+        "foo.rs",
+        "jjjjjj3j",
+        indoc!(
+            r#"
+                fn foo() {
+                <color={Rgb(47, 47, 255)}>+-- 11 lines: let foo = "foo";</>
+                }
+
+                fn bar() {
+                <color={Rgb(47, 47, 255)}>+-- 11 lines: let bar = "bar";</>
+                <cursor/>}
+            "#
+        ),
+    )
+    .await?;
+
+    Ok(())
+}
