@@ -243,29 +243,60 @@ impl Editor {
         })
     }
 
-    fn maybe_move_cursor_down_one_line(&mut self) {
+    fn can_scroll_down_further(&self) -> bool {
+        !(self.printed_lines.len() < usize::from(self.file_editor_grid_size().height)
+            || self.one_past_final_last_printed_row_line_number()
+                >= self.current_file.rope().len_lines())
+    }
+
+    fn maybe_move_cursor_down_n_lines(&mut self, num_lines: u16) {
         if self.is_cursor_on_last_file_line() {
             return;
         }
-        if self.cursor_position.row == self.file_editor_grid_size().height - 1 {
-            let first_line_of_new_top_line = match self.top_line {
-                PrintedLine::Line(line) => line + 1,
-                PrintedLine::Fold(fold_index) => self.folds[fold_index].range.end,
-            };
-            self.top_line = match (!self.disallow_folding).then_and(|| {
-                self.folds
-                    .iter()
-                    .position(|fold| fold.range.start == first_line_of_new_top_line)
-            }) {
-                Some(fold_index) => PrintedLine::Fold(fold_index),
-                None => PrintedLine::Line(first_line_of_new_top_line),
-            };
-            self.recompute_printed_lines_and_printed_line_chunks();
+        if !self.can_scroll_down_further()
+            || self.cursor_position.row + num_lines < self.file_editor_grid_size().height
+        {
+            self.cursor_position.row += cmp::min(
+                num_lines,
+                u16::try_from(self.printed_lines.len()).unwrap() - self.cursor_position.row,
+            );
             self.set_allowed_cursor_column();
-        } else {
-            self.cursor_position.row += 1;
-            self.set_allowed_cursor_column();
+            return;
         }
+
+        let max_num_lines_to_scroll_by =
+            self.cursor_position.row + num_lines + 1 - self.file_editor_grid_size().height;
+        if max_num_lines_to_scroll_by < self.file_editor_grid_size().height {
+            let tentative_new_top_line_if_we_can_still_fill_up_the_entire_screen =
+                self.printed_lines[usize::from(max_num_lines_to_scroll_by)];
+            let tentative_new_printed_lines = compute_printed_lines(
+                self.current_file.rope().len_lines(),
+                tentative_new_top_line_if_we_can_still_fill_up_the_entire_screen,
+                &self.folds,
+                self.file_editor_grid_size().height,
+                self.disallow_folding,
+            );
+            if tentative_new_printed_lines.len() == usize::from(self.file_editor_grid_size().height)
+            {
+                self.top_line = tentative_new_top_line_if_we_can_still_fill_up_the_entire_screen;
+                self.printed_lines = tentative_new_printed_lines;
+                self.recompute_printed_line_chunks_only();
+                return;
+            }
+            self.top_line = self.printed_lines[usize::from(
+                max_num_lines_to_scroll_by
+                    - (self.file_editor_grid_size().height
+                        - u16::try_from(tentative_new_printed_lines.len()).unwrap()),
+            )];
+            self.recompute_printed_lines_and_printed_line_chunks();
+            assert_eq!(
+                self.printed_lines.len(),
+                usize::from(self.file_editor_grid_size().height)
+            );
+            assert!(!self.can_scroll_down_further());
+            return;
+        }
+        unimplemented!()
     }
 
     fn maybe_move_cursor_up_one_line(&mut self) {
@@ -343,13 +374,17 @@ impl Editor {
             self.current_file.rope().len_lines(),
             self.top_line,
             &self.folds,
-            self.size().height,
+            self.file_editor_grid_size().height,
             self.disallow_folding,
         );
     }
 
     pub(crate) fn recompute_printed_lines_and_printed_line_chunks(&mut self) {
         self.recompute_printed_lines();
+        self.recompute_printed_line_chunks_only();
+    }
+
+    pub(crate) fn recompute_printed_line_chunks_only(&mut self) {
         self.printed_line_chunks = compute_printed_line_chunks(
             &self.printed_lines,
             self.current_file.rope(),

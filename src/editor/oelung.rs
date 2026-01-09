@@ -53,23 +53,25 @@ impl ReceiveEvent<Event> for Editor {
     ) -> Result<(), anyhow::Error> {
         match event {
             Event::MoveCursorDownNLines(n) => {
-                assert_eq!(*n, 1);
-                self.maybe_move_cursor_down_one_line();
+                self.maybe_move_cursor_down_n_lines(*n);
                 Ok(())
             }
             Event::MoveCursorUpNLines(n) => {
                 assert_eq!(*n, 1);
                 self.maybe_move_cursor_up_one_line();
+                // self.maybe_move_cursor_up_n_lines(n);
                 Ok(())
             }
             Event::MoveCursorRightNColumns(n) => {
                 assert_eq!(*n, 1);
                 self.maybe_move_cursor_right_one_column();
+                // self.maybe_move_cursor_right_n_columns(n);
                 Ok(())
             }
             Event::MoveCursorLeftNColumns(n) => {
                 assert_eq!(*n, 1);
                 self.maybe_move_cursor_left_one_column();
+                // self.maybe_move_cursor_left_n_columns(n);
                 Ok(())
             }
             Event::MoveCursorToBeginningOfLine => {
