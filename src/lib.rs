@@ -10,7 +10,7 @@ mod lsp;
 pub mod tree_sitter;
 
 pub use config::{Args, Config, ConfigBuilder, InitialFile};
-pub use editor::{Editor, EventAggregator, PrintedLine};
+pub use editor::{Editor, EventAggregator, Offset, PrintedLine, Range};
 pub use fold::{calculate_folds, Fold, FoldIndex};
 pub use indent::{calculate_indents, IndentLevel};
 pub use jsonrpc::{RequestMessage, RpcMessage};

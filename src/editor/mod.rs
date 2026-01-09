@@ -1,5 +1,5 @@
 use std::cell::Cell;
-use std::cmp;
+use std::cmp::{self. Ordering};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -127,7 +127,7 @@ impl Editor {
         let printed_line_chunks = compute_printed_line_chunks(
             &printed_lines,
             current_file.rope(),
-            &tree_sitter_highlights,
+            &compute_highlight_ranges(tree_sitter_highlights, None),
         );
 
         // let (rust_analyzer_sender, rust_analyzer_receiver) = channel::<LspOutgoingMessage>(100);
@@ -549,6 +549,7 @@ pub enum Event {
     MoveCursorToEndOfLine,
     GoIntoInsertMode,
     InsertChar(char),
+    HighlightRange(),
     // Lsp(LspIncomingMessage),
 }
 
@@ -634,13 +635,14 @@ pub struct LineChunk {
     pub chunk_index: usize,
     pub chunk_start_byte: usize,
     pub chunk_end_byte: usize,
-    pub highlight_type_index: Option<usize>,
+    pub style: Option<Style>,
 }
 
 fn compute_printed_line_chunks(
     printed_lines: &[PrintedLine],
     rope: &Rope,
     tree_sitter_highlights: &[TreeSitterHighlight],
+    highlight_range: Option<Range>,
 ) -> Vec<PrintedLineChunks> {
     type IndexInHighlights = usize;
     #[derive(Copy, Clone)]
@@ -672,8 +674,8 @@ fn compute_printed_line_chunks(
                         last_highlight
                     {
                         let open_highlight = tree_sitter_highlights[index_in_highlights];
-                        if open_highlight.end_byte < next_start_byte {
-                            let num_bytes_to_print = open_highlight.end_byte - current_start_byte;
+                        if open_highlight.range.end < next_start_byte {
+                            let num_bytes_to_print = open_highlight.range.end - current_start_byte;
                             line_chunks.push(LineChunk {
                                 chunk_index,
                                 chunk_start_byte: 0,
@@ -819,4 +821,263 @@ pub fn line_len(line: &RopeSlice<'_>) -> usize {
 fn get_char_offset(rope: &Rope, position: Position) -> usize {
     let beginning_of_line = rope.line_to_char(usize::from(position.row));
     beginning_of_line + usize::from(position.column)
+}
+
+pub type Offset = usize;
+
+#[derive(Copy, Clone, Debug)]
+pub struct Range {
+    start: Offset,
+    end: Offset,
+}
+
+#[derive(Clone, Debug)]
+pub struct Style {
+    pub foreground_color: Option<Color>,
+    pub background_color: Option<Color>,
+}
+
+pub struct HighlightRange {
+    pub range: Range,
+    pub style: Style,
+}
+
+fn tree_sitter_highlight_style(
+    tree_sitter_highlight: &TreeSitterHighlight,
+    tree_sitter_highlight_colors: &[Color],
+) -> Style {
+    Style {
+        foreground_color: Some(tree_sitter_highlight_colors[tree_sitter_highlight.highlight_type_index]),
+        background_color: _d(),
+    }
+}
+
+fn tree_sitter_highlight_to_highlight_range(
+    tree_sitter_highlight: &TreeSitterHighlight,
+    tree_sitter_highlight_colors: &[Color],
+) -> HighlightRange {
+    HighlightRange {
+        range: tree_sitter_highlight.range,
+        style: tree_sitter_highlight_style(tree_sitter_highlight, tree_sitter_highlight_colors),
+    }
+}
+
+fn highlight_range_background_color() -> Color {
+    Color::AnsiValue(94)
+}
+
+fn highlight_range_style() -> Style {
+    Style {
+        foreground_color: None,
+        background_color: Some(highlight_range_background_color()),
+    }
+}
+
+fn highlight_range_to_highlight_range(
+    highlight_range: Range,
+) -> HighlightRange {
+    HighlightRange {
+        range: highlight_range,
+        style: highlight_range_style(),
+    }
+}
+
+fn tree_sitter_and_highlight_range_style(
+    tree_sitter_highlight: &TreeSitterHighlight,
+    tree_sitter_highlight_colors: &[Color],
+) -> Style {
+    Style {
+        foreground_color: Some(tree_sitter_highlight_colors[tree_sitter_highlight.highlight_type_index]),
+        background_color: Some(highlight_range_background_color()),
+    }
+}
+
+fn compute_highlight_ranges(
+    tree_sitter_highlights: &[TreeSitterHighlight],
+    highlight_range: Option<Range>,
+    tree_sitter_highlight_colors: &[Color],
+) -> Vec<HighlightRange> {
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    enum EngagementWithHighlightRange {
+        HasntStarted,
+        InProgress,
+        Done,
+    }
+    let mut engagement_with_highlight_range = EngagementWithHighlightRange::HasntStarted;
+    tree_sitter_highlights.into_iter().enumerate().flat_map(|(tree_sitter_highlight_index, tree_sitter_highlight)| {
+        match highlight_range {
+            None => smallvec![tree_sitter_highlight_to_highlight_range(tree_sitter_highlight, tree_sitter_highlight_colors)],
+            Some(highlight_range) => {
+                match engagement_with_highlight_range {
+                    EngagementWithHighlightRange::Done => smallvec![
+                        tree_sitter_highlight_to_highlight_range(tree_sitter_highlight, tree_sitter_highlight_colors)
+                    ],
+                    EngagementWithHighlightRange::InProgress => {
+                        let mut ret: SmallVec<_, 4> = _d();
+                        if tree_sitter_highlights[tree_sitter_highlight_index - 1].range.end < tree_sitter_highlight.range.start {
+                            ret.push(HighlightRange {
+                                range: Range {
+                                    start: tree_sitter_highlights[tree_sitter_highlight_index - 1].range.end,
+                                    end: cmp::min(tree_sitter_highlight.range.start, highlight_range.end),
+                                },
+                                style: highlight_range_style(),
+                            });
+                        }
+                        match highlight_range.end.cmp(tree_sitter_highlight.range.start) {
+                            Ordering::Less | Ordering::Equal => {
+                                engagement_with_highlight_range = EngagementWithHighlightRange::Done;
+                                ret.push(tree_sitter_highlight_to_highlight_range(tree_sitter_highlight, tree_sitter_highlight_colors));
+                            }
+                            Ordering::Greater => match highlight_range.end.cmp(tree_sitter_highlight.range.end) {
+                                Ordering::Greater => {
+                                    ret.push(HighlightRange {
+                                        range: tree_sitter_highlight.range,
+                                        style: tree_sitter_and_highlight_range_style(tree_sitter_highlight, tree_sitter_highlight_colors),
+                                    });
+                                }
+                                Ordering::Equal => {
+                                    ret.push(HighlightRange {
+                                        range: tree_sitter_highlight.range,
+                                        style: tree_sitter_and_highlight_range_style(tree_sitter_highlight, tree_sitter_highlight_colors),
+                                    });
+                                    engagement_with_highlight_range = EngagementWithHighlightRange::Done;
+                                }
+                                Ordering::Less => {
+                                    ret.push(HighlightRange {
+                                        range: Range {
+                                            start: tree_sitter_highlight.range.start,
+                                            end: highlight_range.end,
+                                        },
+                                        style: tree_sitter_and_highlight_range_style(tree_sitter_highlight, tree_sitter_highlight_colors),
+                                    });
+                                    ret.push(HighlightRange {
+                                        range: Range {
+                                            start: highlight_range.end,
+                                            end: tree_sitter_highlight.end,
+                                        },
+                                        style: tree_sitter_highlight_style(tree_sitter_highlight, tree_sitter_highlight_colors),
+                                    });
+                                    engagement_with_highlight_range = EngagementWithHighlightRange::Done;
+                                }
+                            }
+                        }
+                    }
+                    EngagementWithHighlightRange::HasntStarted => {
+                        match highlight_range.start.cmp(tree_sitter_highlight.range.end) {
+                            Ordering::Greater | Ordering::Equal => smallvec![tree_sitter_highlight_to_highlight_range(tree_sitter_highlight, tree_sitter_highlight_colors)],
+                            Ordering::Less => {
+                                let mut ret: SmallVec<_, 4> = _d();
+                                match highlight_range.end.cmp(tree_sitter_highlight.range.start) {
+                                    Ordering::Less | Ordering::Equal => {
+                                        ret.push(highlight_range_to_highlight_range(highlight_range));
+                                        engagement_with_highlight_range = EngagementWithHighlightRange::Done;
+                                        ret.push(tree_sitter_highlight_to_highlight_range(tree_sitter_highlight, tree_sitter_highlight_colors));
+                                    }
+                                    Ordering::Greater => match highlight_range.end.cmp(tree_sitter_highlight.range.end) {
+                                        Ordering::Equal => {
+                                            match highlight_range.start.cmp(tree_sitter_highlight.range.start) {
+                                                Ordering::Equal => {
+                                                    ret.push(HighlightRange {
+                                                        range: tree_sitter_highlight.range,
+                                                        style: tree_sitter_and_highlight_range_style(tree_sitter_highlight, tree_sitter_highlight_colors),
+                                                    });
+                                                }
+                                                Ordering::Less => {
+                                                    ret.push(HighlightRange {
+                                                        range: Range {
+                                                            start: highlight_range.start,
+                                                            end: tree_sitter_highlight.range.start,
+                                                        },
+                                                        style: highlight_range_style(),
+                                                    });
+                                                    ret.push(HighlightRange {
+                                                        range: tree_sitter_highlight.range,
+                                                        style: tree_sitter_and_highlight_range_style(tree_sitter_highlight, tree_sitter_highlight_colors),
+                                                    });
+                                                }
+                                                Ordering::Greater => {
+                                                    ret.push(HighlightRange {
+                                                        range: Range {
+                                                            start: tree_sitter_highlight.range.start,
+                                                            end: highlight_range.start,
+                                                        },
+                                                        style: tree_sitter_highlight_style(tree_sitter_highlight, tree_sitter_highlight_colors),
+                                                    });
+                                                    ret.push(HighlightRange {
+                                                        range: highlight_range.range,
+                                                        style: tree_sitter_and_highlight_range_style(tree_sitter_highlight, tree_sitter_highlight_colors),
+                                                    });
+                                                }
+                                            }
+                                            engagement_with_highlight_range = EngagementWithHighlightRange::Done;
+                                        }
+                                        Ordering::Greater => {
+                                            match highlight_range.start.cmp(tree_sitter_highlight.range.start) {
+                                                Ordering::Equal => {
+                                                    ret.push(HighlightRange {
+                                                        range: tree_sitter_highlight.range,
+                                                        style: tree_sitter_and_highlight_range_style(tree_sitter_highlight, tree_sitter_highlight_colors),
+                                                    });
+                                                }
+                                                Ordering::Less => {
+                                                    ret.push(HighlightRange {
+                                                        range: Range {
+                                                            start: highlight_range.start,
+                                                            end: tree_sitter_highlight.range.start,
+                                                        },
+                                                        style: highlight_range_style(),
+                                                    });
+                                                    ret.push(HighlightRange {
+                                                        range: tree_sitter_highlight.range,
+                                                        style: tree_sitter_and_highlight_range_style(tree_sitter_highlight, tree_sitter_highlight_colors),
+                                                    });
+                                                }
+                                                Ordering::Greater => {
+                                                    ret.push(HighlightRange {
+                                                        range: Range {
+                                                            start: tree_sitter_highlight.range.start,
+                                                            end: highlight_range.start,
+                                                        },
+                                                        style: tree_sitter_highlight_style(tree_sitter_highlight, tree_sitter_highlight_colors),
+                                                    });
+                                                    ret.push(HighlightRange {
+                                                        range: Range {
+                                                            start: highlight_range.start,
+                                                            end: tree_sitter_highlight.range.end,
+                                                        },
+                                                        style: tree_sitter_and_highlight_range_style(tree_sitter_highlight, tree_sitter_highlight_colors),
+                                                    });
+                                                }
+                                            }
+                                            engagement_with_highlight_range = EngagementWithHighlightRange::InProgress;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }).chain(
+        match highlight_range {
+            None => smallvec![],
+            Some(highlight_range) => match engagement_with_highlight_range {
+                EngagementWithHighlightRange::HasntStarted => {
+                    assert!(tree_sitter_highlights.is_empty() || highlight_range.start >= tree_sitter_highlights[tree_sitter_highlights.len() - 1]);
+                    smallvec![highlight_range_to_highlight_range(highlight_range)]
+                }
+                EngagementWithHighlightRange::Done => smallvec![],
+                EngagementWithHighlightRange::InProgress => {
+                    smallvec![HighlightRange {
+                        range: Range {
+                            start: tree_sitter_highlights[tree_sitter_highlights.len() - 1].end,
+                            end: highlight_range.end,
+                        },
+                        style: highlight_range_style(),
+                    }]
+                }
+            }
+        }
+    ).collect()
 }

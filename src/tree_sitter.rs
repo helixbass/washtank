@@ -4,10 +4,11 @@ use squalid::_d;
 // use tree_sitter_highlight::{HighlightConfiguration, Highlighter};
 use tree_sitter::{Node, Parser, Query, StreamingIterator};
 
+use crate::Range;
+
 #[derive(Copy, Clone, Debug)]
 pub struct TreeSitterHighlight {
-    pub start_byte: usize,
-    pub end_byte: usize,
+    pub range: Range,
     pub highlight_type_index: usize,
 }
 
