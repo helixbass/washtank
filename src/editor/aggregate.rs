@@ -2,15 +2,18 @@ use std::pin::Pin;
 
 use crossterm::event::{self, KeyCode};
 use oelung_lantern::{
-    is_any_simple_char_press, is_simple_char_press, is_simple_key_press, ReceiveEvent,
+    is_any_simple_char_press, is_simple_char_press, is_simple_digit_press, is_simple_key_press,
+    ReceiveEvent,
 };
+use smallvec::{smallvec, SmallVec};
+use smol_str::SmolStr;
 use squalid::_d;
 use tracing::instrument;
 
 use super::Event;
 use crate::Config;
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct EventAggregator {
     pub state: State,
     pub disallow_folding: bool,
@@ -27,14 +30,26 @@ impl EventAggregator {
     }
 }
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub enum State {
     #[default]
     Initial,
     SawZ,
     InExCommandMode,
     InInsertMode,
+    SawDigits(Digits),
 }
+
+impl State {
+    pub fn as_saw_digits_mut(&mut self) -> &mut Digits {
+        match self {
+            Self::SawDigits(digits) => digits,
+            _ => panic!("Expected digits"),
+        }
+    }
+}
+
+pub type Digits = SmallVec<char, 4>;
 
 impl ReceiveEvent<event::Event, Option<Event>> for EventAggregator {
     #[instrument(level = "trace", skip(self, event, _queue_effect))]
@@ -43,24 +58,46 @@ impl ReceiveEvent<event::Event, Option<Event>> for EventAggregator {
         event: &event::Event,
         _queue_effect: TQueueEffect,
     ) -> Result<Option<Event>, anyhow::Error> {
-        match (self.state, event) {
+        match (&self.state, event) {
             (State::Initial, event) if is_simple_char_press(event, 'j') => {
                 return Ok(Some(Event::MoveCursorDownNLines(1)));
+            }
+            (State::SawDigits(digits), event) if is_simple_char_press(event, 'j') => {
+                return Ok(Some(Event::MoveCursorDownNLines(digits_to_n(digits))));
             }
             (State::Initial, event) if is_simple_char_press(event, 'k') => {
                 return Ok(Some(Event::MoveCursorUpNLines(1)));
             }
+            (State::SawDigits(digits), event) if is_simple_char_press(event, 'k') => {
+                return Ok(Some(Event::MoveCursorUpNLines(digits_to_n(digits))));
+            }
             (State::Initial, event) if is_simple_char_press(event, 'l') => {
                 return Ok(Some(Event::MoveCursorRightNColumns(1)));
             }
+            (State::SawDigits(digits), event) if is_simple_char_press(event, 'l') => {
+                return Ok(Some(Event::MoveCursorRightNColumns(digits_to_n(digits))));
+            }
             (State::Initial, event) if is_simple_char_press(event, 'h') => {
                 return Ok(Some(Event::MoveCursorLeftNColumns(1)));
+            }
+            (State::SawDigits(digits), event) if is_simple_char_press(event, 'h') => {
+                return Ok(Some(Event::MoveCursorLeftNColumns(digits_to_n(digits))));
             }
             (State::Initial, event) if is_simple_char_press(event, '0') => {
                 return Ok(Some(Event::MoveCursorToBeginningOfLine));
             }
             (State::Initial, event) if is_simple_char_press(event, '$') => {
                 return Ok(Some(Event::MoveCursorToEndOfLine));
+            }
+            (State::Initial, event) if is_simple_digit_press(event).is_some() => {
+                self.state = State::SawDigits(smallvec![is_simple_digit_press(event).unwrap()]);
+                return Ok(None);
+            }
+            (State::SawDigits(_), event) if is_simple_digit_press(event).is_some() => {
+                self.state
+                    .as_saw_digits_mut()
+                    .push(is_simple_digit_press(event).unwrap());
+                return Ok(None);
             }
             (State::Initial, event)
                 if is_simple_char_press(event, 'z') && !self.disallow_folding =>
@@ -115,4 +152,13 @@ impl ReceiveEvent<event::Event, Option<Event>> for EventAggregator {
             _ => panic!("unexpected event"),
         }
     }
+}
+
+fn digits_to_n(digits: &[char]) -> u16 {
+    digits
+        .into_iter()
+        .copied()
+        .collect::<SmolStr>()
+        .parse::<u16>()
+        .unwrap()
 }

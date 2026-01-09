@@ -354,3 +354,42 @@ async fn test_dollar_brings_to_end_of_line() -> Result<(), anyhow::Error> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_move_cursor_down_multiple() -> Result<(), anyhow::Error> {
+    run_interactive_test(
+        "no_indentation.txt",
+        "3j",
+        indoc!(
+            r#"
+                Hello world
+                What a great day
+
+                <cursor/>Hello world
+                What a great day
+
+                Goodbye
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Hello world
+                What a great day
+
+                Goodbye
+
+                Hello world
+                What a great day
+            "#
+        ),
+    )
+    .await?;
+
+    Ok(())
+}
