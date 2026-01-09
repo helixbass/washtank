@@ -258,14 +258,16 @@ impl Editor {
         {
             self.cursor_position.row += cmp::min(
                 num_lines,
-                u16::try_from(self.printed_lines.len()).unwrap() - self.cursor_position.row,
+                u16::try_from(self.printed_lines.len()).unwrap() - (self.cursor_position.row + 1),
             );
             self.set_allowed_cursor_column();
             return;
         }
 
+        let old_cursor_position_row = self.cursor_position.row;
+        self.cursor_position.row = self.file_editor_grid_size().height - 1;
         let max_num_lines_to_scroll_by =
-            self.cursor_position.row + num_lines + 1 - self.file_editor_grid_size().height;
+            old_cursor_position_row + num_lines + 1 - self.file_editor_grid_size().height;
         if max_num_lines_to_scroll_by < self.file_editor_grid_size().height {
             let tentative_new_top_line_if_we_can_still_fill_up_the_entire_screen =
                 self.printed_lines[usize::from(max_num_lines_to_scroll_by)];
@@ -468,7 +470,7 @@ pub struct OpenFileNamed {
     pub path: PathBuf,
 }
 
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct Position {
     pub row: RowOrColumnNumber,
     pub column: RowOrColumnNumber,
