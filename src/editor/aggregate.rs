@@ -63,25 +63,33 @@ impl ReceiveEvent<event::Event, Option<Event>> for EventAggregator {
                 return Ok(Some(Event::MoveCursorDownNLines(1)));
             }
             (State::SawDigits(digits), event) if is_simple_char_press(event, 'j') => {
-                return Ok(Some(Event::MoveCursorDownNLines(digits_to_n(digits))));
+                let digits = digits_to_n(digits);
+                self.state = State::Initial;
+                return Ok(Some(Event::MoveCursorDownNLines(digits)));
             }
             (State::Initial, event) if is_simple_char_press(event, 'k') => {
                 return Ok(Some(Event::MoveCursorUpNLines(1)));
             }
             (State::SawDigits(digits), event) if is_simple_char_press(event, 'k') => {
-                return Ok(Some(Event::MoveCursorUpNLines(digits_to_n(digits))));
+                let digits = digits_to_n(digits);
+                self.state = State::Initial;
+                return Ok(Some(Event::MoveCursorUpNLines(digits)));
             }
             (State::Initial, event) if is_simple_char_press(event, 'l') => {
                 return Ok(Some(Event::MoveCursorRightNColumns(1)));
             }
             (State::SawDigits(digits), event) if is_simple_char_press(event, 'l') => {
-                return Ok(Some(Event::MoveCursorRightNColumns(digits_to_n(digits))));
+                let digits = digits_to_n(digits);
+                self.state = State::Initial;
+                return Ok(Some(Event::MoveCursorRightNColumns(digits)));
             }
             (State::Initial, event) if is_simple_char_press(event, 'h') => {
                 return Ok(Some(Event::MoveCursorLeftNColumns(1)));
             }
             (State::SawDigits(digits), event) if is_simple_char_press(event, 'h') => {
-                return Ok(Some(Event::MoveCursorLeftNColumns(digits_to_n(digits))));
+                let digits = digits_to_n(digits);
+                self.state = State::Initial;
+                return Ok(Some(Event::MoveCursorLeftNColumns(digits)));
             }
             (State::Initial, event) if is_simple_char_press(event, '0') => {
                 return Ok(Some(Event::MoveCursorToBeginningOfLine));
