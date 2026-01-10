@@ -67,8 +67,10 @@ pub fn calculate_highlights(
     let mut ret: Vec<TreeSitterHighlight> = _d();
     while let Some(capture) = captures.next() {
         ret.push(TreeSitterHighlight {
-            start_byte: capture.0.captures[0].node.start_byte(),
-            end_byte: capture.0.captures[0].node.end_byte(),
+            range: Range {
+                start: capture.0.captures[0].node.start_byte(),
+                end: capture.0.captures[0].node.end_byte(),
+            },
             highlight_type_index: capture.0.pattern_index,
         });
     }

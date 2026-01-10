@@ -134,6 +134,10 @@ impl ReceiveEvent<Event> for Editor {
                 self.insert_char(*ch);
                 Ok(())
             }
+            Event::HighlightRange(range) => {
+                self.highlight_range = Some(*range);
+                Ok(())
+            }
         }
     }
 }
@@ -203,8 +207,8 @@ impl<'a> ComponentInterface for EditorGrid<'a> {
                                           Ok(soft! {
                                               %Text
                                                 text => &chunks[line_chunk.chunk_index][line_chunk.chunk_start_byte..line_chunk.chunk_end_byte]
-                                                maybe_color => line_chunk.highlight_type_index.map(|highlight_type_index| {
-                                                    self.editor.tree_sitter_highlight_colors[highlight_type_index]
+                                                maybe_color => line_chunk.style.as_ref().and_then(|style| {
+                                                    style.foreground_color.clone()
                                                 })
                                           }.into_text_child())
                                       })

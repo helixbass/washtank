@@ -838,8 +838,8 @@ pub type Offset = usize;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Range {
-    start: Offset,
-    end: Offset,
+    pub start: Offset,
+    pub end: Offset,
 }
 
 #[derive(Clone, Debug)]
