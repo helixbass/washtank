@@ -917,8 +917,11 @@ fn compute_highlight_ranges(
         Done,
     }
     let mut engagement_with_highlight_range = EngagementWithHighlightRange::HasntStarted;
-    tree_sitter_highlights.into_iter().enumerate().flat_map(|(tree_sitter_highlight_index, tree_sitter_highlight)| {
-        match highlight_range {
+    let mut ret: Vec<HighlightRange> = _d();
+    for (tree_sitter_highlight_index, tree_sitter_highlight) in
+        tree_sitter_highlights.into_iter().enumerate()
+    {
+        ret.extend(match highlight_range {
             None => smallvec![tree_sitter_highlight_to_highlight_range(tree_sitter_highlight, tree_sitter_highlight_colors)],
             Some(highlight_range) => {
                 match engagement_with_highlight_range {
@@ -1120,26 +1123,35 @@ fn compute_highlight_ranges(
                     }
                 }
             }
-        }
-    }).chain(
-        match highlight_range {
-            None => smallvec![],
-            Some(highlight_range) => match engagement_with_highlight_range {
-                EngagementWithHighlightRange::HasntStarted => {
-                    assert!(tree_sitter_highlights.is_empty() || highlight_range.start >= tree_sitter_highlights[tree_sitter_highlights.len() - 1]);
-                    smallvec![highlight_range_to_highlight_range(highlight_range)]
-                }
-                EngagementWithHighlightRange::Done => smallvec![],
-                EngagementWithHighlightRange::InProgress => {
-                    smallvec![HighlightRange {
-                        range: Range {
-                            start: tree_sitter_highlights[tree_sitter_highlights.len() - 1].end,
-                            end: highlight_range.end,
-                        },
-                        style: highlight_range_style(),
-                    }]
-                }
+        });
+    }
+
+    ret.extend(match highlight_range {
+        None => SmallVec::<_, 2>::default(),
+        Some(highlight_range) => match engagement_with_highlight_range {
+            EngagementWithHighlightRange::HasntStarted => {
+                assert!(
+                    tree_sitter_highlights.is_empty()
+                        || highlight_range.start
+                            >= tree_sitter_highlights[tree_sitter_highlights.len() - 1]
+                                .range
+                                .end
+                );
+                smallvec![highlight_range_to_highlight_range(highlight_range)]
             }
-        }
-    ).collect()
+            EngagementWithHighlightRange::Done => smallvec![],
+            EngagementWithHighlightRange::InProgress => {
+                smallvec![HighlightRange {
+                    range: Range {
+                        start: tree_sitter_highlights[tree_sitter_highlights.len() - 1]
+                            .range
+                            .end,
+                        end: highlight_range.end,
+                    },
+                    style: highlight_range_style(),
+                }]
+            }
+        },
+    });
+    ret
 }
