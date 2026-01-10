@@ -131,11 +131,12 @@ impl ReceiveEvent<Event> for Editor {
                 Ok(())
             }
             Event::InsertChar(ch) => {
-                self.insert_char(*ch);
+                self.insert_char(*ch)?;
                 Ok(())
             }
             Event::HighlightRange(range) => {
                 self.highlight_range = Some(*range);
+                self.recompute_on_highlights_or_content_changed()?;
                 Ok(())
             }
         }

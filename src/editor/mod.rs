@@ -436,11 +436,41 @@ impl Editor {
         }
     }
 
-    fn insert_char(&mut self, ch: char) {
+    fn recompute_tree_sitter_highlights(&mut self) -> Result<(), anyhow::Error> {
+        self.current_tree_sitter_highlights = calculate_highlights(
+            &self.tree_sitter_highlight_query,
+            self.current_tree_sitter_tree.root_node(),
+            self.current_file.rope(),
+        )?;
+
+        Ok(())
+    }
+
+    fn recompute_highlight_ranges(&mut self) -> Result<(), anyhow::Error> {
+        self.recompute_tree_sitter_highlights()?;
+        self.current_highlight_ranges = compute_highlight_ranges(
+            &self.current_tree_sitter_highlights,
+            self.highlight_range,
+            &self.tree_sitter_highlight_colors,
+        );
+
+        Ok(())
+    }
+
+    fn recompute_on_highlights_or_content_changed(&mut self) -> Result<(), anyhow::Error> {
+        self.recompute_highlight_ranges()?;
+        self.recompute_printed_lines_and_printed_line_chunks();
+
+        Ok(())
+    }
+
+    fn insert_char(&mut self, ch: char) -> Result<(), anyhow::Error> {
         let offset = get_char_offset(self.current_file.rope(), self.cursor_position);
         self.current_file.rope_mut().insert_char(offset, ch);
         self.cursor_position.column += 1;
-        self.recompute_printed_lines_and_printed_line_chunks();
+        self.recompute_on_highlights_or_content_changed()?;
+
+        Ok(())
     }
 }
 
