@@ -1,5 +1,5 @@
 use std::cell::Cell;
-use std::cmp::{self. Ordering};
+use std::cmp::{self, Ordering};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -11,7 +11,7 @@ use crossterm::style::Color;
 use futures::future::FutureExt;
 use oelung_lantern::mpsc::Sender;
 use ropey::{Rope, RopeSlice};
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 use squalid::{BoolExt, EverythingExt, _d};
 use tokio::fs;
 
@@ -55,6 +55,8 @@ pub struct Editor {
     pub flex_grow: Option<f64>,
     pub disallow_folding: bool,
     pub disallow_ex_command_mode: bool,
+    pub highlight_range: Option<Range>,
+    pub current_highlight_ranges: Vec<HighlightRange>,
 }
 
 impl Editor {
@@ -124,10 +126,21 @@ impl Editor {
             initial_terminal_size.height,
             config.disallow_folding,
         );
+        let highlight_range = None;
+        let tree_sitter_highlight_colors = vec![
+            known_colors()["dark_blue"],
+            known_colors()["dark_blue"],
+            known_colors()["yellow"],
+        ];
+        let current_highlight_ranges = compute_highlight_ranges(
+            &tree_sitter_highlights,
+            highlight_range,
+            &tree_sitter_highlight_colors,
+        );
         let printed_line_chunks = compute_printed_line_chunks(
             &printed_lines,
             current_file.rope(),
-            &compute_highlight_ranges(tree_sitter_highlights, None),
+            &current_highlight_ranges,
         );
 
         // let (rust_analyzer_sender, rust_analyzer_receiver) = channel::<LspOutgoingMessage>(100);
@@ -172,11 +185,7 @@ impl Editor {
             // },
             // tree_sitter_highlight_names,
             tree_sitter_highlight_query,
-            tree_sitter_highlight_colors: vec![
-                known_colors()["dark_blue"],
-                known_colors()["dark_blue"],
-                known_colors()["yellow"],
-            ],
+            tree_sitter_highlight_colors,
             current_file_shift_width,
             current_file_indents,
             folds,
@@ -188,6 +197,8 @@ impl Editor {
             flex_grow: config.flex_grow,
             disallow_folding: config.disallow_folding,
             disallow_ex_command_mode: config.disallow_ex_command_mode,
+            highlight_range,
+            current_highlight_ranges,
         })
     }
 
@@ -390,7 +401,7 @@ impl Editor {
         self.printed_line_chunks = compute_printed_line_chunks(
             &self.printed_lines,
             self.current_file.rope(),
-            &self.current_tree_sitter_highlights,
+            &self.current_highlight_ranges,
         );
     }
 
@@ -549,7 +560,7 @@ pub enum Event {
     MoveCursorToEndOfLine,
     GoIntoInsertMode,
     InsertChar(char),
-    HighlightRange(),
+    HighlightRange(Range),
     // Lsp(LspIncomingMessage),
 }
 
@@ -569,7 +580,8 @@ impl Event {
             | Self::ExCommandChar(_)
             | Self::MoveCursorToBeginningOfLine
             | Self::MoveCursorToEndOfLine
-            | Self::GoIntoInsertMode => false,
+            | Self::GoIntoInsertMode
+            | Self::HighlightRange(_) => false,
             Self::InsertChar(_) | Self::FinishExCommand => true,
         }
     }
@@ -641,8 +653,7 @@ pub struct LineChunk {
 fn compute_printed_line_chunks(
     printed_lines: &[PrintedLine],
     rope: &Rope,
-    tree_sitter_highlights: &[TreeSitterHighlight],
-    highlight_range: Option<Range>,
+    highlight_ranges: &[HighlightRange],
 ) -> Vec<PrintedLineChunks> {
     type IndexInHighlights = usize;
     #[derive(Copy, Clone)]
@@ -847,7 +858,9 @@ fn tree_sitter_highlight_style(
     tree_sitter_highlight_colors: &[Color],
 ) -> Style {
     Style {
-        foreground_color: Some(tree_sitter_highlight_colors[tree_sitter_highlight.highlight_type_index]),
+        foreground_color: Some(
+            tree_sitter_highlight_colors[tree_sitter_highlight.highlight_type_index],
+        ),
         background_color: _d(),
     }
 }
@@ -873,9 +886,7 @@ fn highlight_range_style() -> Style {
     }
 }
 
-fn highlight_range_to_highlight_range(
-    highlight_range: Range,
-) -> HighlightRange {
+fn highlight_range_to_highlight_range(highlight_range: Range) -> HighlightRange {
     HighlightRange {
         range: highlight_range,
         style: highlight_range_style(),
@@ -887,7 +898,9 @@ fn tree_sitter_and_highlight_range_style(
     tree_sitter_highlight_colors: &[Color],
 ) -> Style {
     Style {
-        foreground_color: Some(tree_sitter_highlight_colors[tree_sitter_highlight.highlight_type_index]),
+        foreground_color: Some(
+            tree_sitter_highlight_colors[tree_sitter_highlight.highlight_type_index],
+        ),
         background_color: Some(highlight_range_background_color()),
     }
 }
@@ -923,12 +936,12 @@ fn compute_highlight_ranges(
                                 style: highlight_range_style(),
                             });
                         }
-                        match highlight_range.end.cmp(tree_sitter_highlight.range.start) {
+                        match highlight_range.end.cmp(&tree_sitter_highlight.range.start) {
                             Ordering::Less | Ordering::Equal => {
                                 engagement_with_highlight_range = EngagementWithHighlightRange::Done;
                                 ret.push(tree_sitter_highlight_to_highlight_range(tree_sitter_highlight, tree_sitter_highlight_colors));
                             }
-                            Ordering::Greater => match highlight_range.end.cmp(tree_sitter_highlight.range.end) {
+                            Ordering::Greater => match highlight_range.end.cmp(&tree_sitter_highlight.range.end) {
                                 Ordering::Greater => {
                                     ret.push(HighlightRange {
                                         range: tree_sitter_highlight.range,
@@ -953,7 +966,7 @@ fn compute_highlight_ranges(
                                     ret.push(HighlightRange {
                                         range: Range {
                                             start: highlight_range.end,
-                                            end: tree_sitter_highlight.end,
+                                            end: tree_sitter_highlight.range.end,
                                         },
                                         style: tree_sitter_highlight_style(tree_sitter_highlight, tree_sitter_highlight_colors),
                                     });
@@ -961,21 +974,22 @@ fn compute_highlight_ranges(
                                 }
                             }
                         }
+                        ret
                     }
                     EngagementWithHighlightRange::HasntStarted => {
-                        match highlight_range.start.cmp(tree_sitter_highlight.range.end) {
+                        match highlight_range.start.cmp(&tree_sitter_highlight.range.end) {
                             Ordering::Greater | Ordering::Equal => smallvec![tree_sitter_highlight_to_highlight_range(tree_sitter_highlight, tree_sitter_highlight_colors)],
                             Ordering::Less => {
                                 let mut ret: SmallVec<_, 4> = _d();
-                                match highlight_range.end.cmp(tree_sitter_highlight.range.start) {
+                                match highlight_range.end.cmp(&tree_sitter_highlight.range.start) {
                                     Ordering::Less | Ordering::Equal => {
                                         ret.push(highlight_range_to_highlight_range(highlight_range));
                                         engagement_with_highlight_range = EngagementWithHighlightRange::Done;
                                         ret.push(tree_sitter_highlight_to_highlight_range(tree_sitter_highlight, tree_sitter_highlight_colors));
                                     }
-                                    Ordering::Greater => match highlight_range.end.cmp(tree_sitter_highlight.range.end) {
+                                    Ordering::Greater => match highlight_range.end.cmp(&tree_sitter_highlight.range.end) {
                                         Ordering::Equal => {
-                                            match highlight_range.start.cmp(tree_sitter_highlight.range.start) {
+                                            match highlight_range.start.cmp(&tree_sitter_highlight.range.start) {
                                                 Ordering::Equal => {
                                                     ret.push(HighlightRange {
                                                         range: tree_sitter_highlight.range,
@@ -1004,7 +1018,7 @@ fn compute_highlight_ranges(
                                                         style: tree_sitter_highlight_style(tree_sitter_highlight, tree_sitter_highlight_colors),
                                                     });
                                                     ret.push(HighlightRange {
-                                                        range: highlight_range.range,
+                                                        range: highlight_range,
                                                         style: tree_sitter_and_highlight_range_style(tree_sitter_highlight, tree_sitter_highlight_colors),
                                                     });
                                                 }
@@ -1012,7 +1026,7 @@ fn compute_highlight_ranges(
                                             engagement_with_highlight_range = EngagementWithHighlightRange::Done;
                                         }
                                         Ordering::Greater => {
-                                            match highlight_range.start.cmp(tree_sitter_highlight.range.start) {
+                                            match highlight_range.start.cmp(&tree_sitter_highlight.range.start) {
                                                 Ordering::Equal => {
                                                     ret.push(HighlightRange {
                                                         range: tree_sitter_highlight.range,
@@ -1051,8 +1065,56 @@ fn compute_highlight_ranges(
                                             }
                                             engagement_with_highlight_range = EngagementWithHighlightRange::InProgress;
                                         }
+                                        Ordering::Less => {
+                                            match highlight_range.start.cmp(&tree_sitter_highlight.range.start) {
+                                                Ordering::Equal => {
+                                                    ret.push(HighlightRange {
+                                                        range: highlight_range,
+                                                        style: tree_sitter_and_highlight_range_style(tree_sitter_highlight, tree_sitter_highlight_colors),
+                                                    });
+                                                }
+                                                Ordering::Less => {
+                                                    ret.push(HighlightRange {
+                                                        range: Range {
+                                                            start: highlight_range.start,
+                                                            end: tree_sitter_highlight.range.start,
+                                                        },
+                                                        style: highlight_range_style(),
+                                                    });
+                                                    ret.push(HighlightRange {
+                                                        range: Range {
+                                                            start: tree_sitter_highlight.range.start,
+                                                            end: highlight_range.end,
+                                                        },
+                                                        style: tree_sitter_and_highlight_range_style(tree_sitter_highlight, tree_sitter_highlight_colors),
+                                                    });
+                                                }
+                                                Ordering::Greater => {
+                                                    ret.push(HighlightRange {
+                                                        range: Range {
+                                                            start: tree_sitter_highlight.range.start,
+                                                            end: highlight_range.start,
+                                                        },
+                                                        style: tree_sitter_highlight_style(tree_sitter_highlight, tree_sitter_highlight_colors),
+                                                    });
+                                                    ret.push(HighlightRange {
+                                                        range: highlight_range,
+                                                        style: tree_sitter_and_highlight_range_style(tree_sitter_highlight, tree_sitter_highlight_colors),
+                                                    });
+                                                }
+                                            }
+                                            ret.push(HighlightRange {
+                                                range: Range {
+                                                    start: highlight_range.end,
+                                                    end: tree_sitter_highlight.range.end,
+                                                },
+                                                style: tree_sitter_highlight_style(tree_sitter_highlight, tree_sitter_highlight_colors),
+                                            });
+                                            engagement_with_highlight_range = EngagementWithHighlightRange::Done;
+                                        }
                                     }
                                 }
+                                ret
                             }
                         }
                     }
