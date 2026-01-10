@@ -599,6 +599,7 @@ pub enum Event {
     GoIntoInsertMode,
     InsertChar(char),
     HighlightRange(Range),
+    UnhighlightRange,
     // Lsp(LspIncomingMessage),
 }
 
@@ -619,7 +620,8 @@ impl Event {
             | Self::MoveCursorToBeginningOfLine
             | Self::MoveCursorToEndOfLine
             | Self::GoIntoInsertMode
-            | Self::HighlightRange(_) => false,
+            | Self::HighlightRange(_)
+            | Self::UnhighlightRange => false,
             Self::InsertChar(_) | Self::FinishExCommand => true,
         }
     }

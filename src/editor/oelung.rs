@@ -139,6 +139,11 @@ impl ReceiveEvent<Event> for Editor {
                 self.recompute_on_highlights_or_content_changed()?;
                 Ok(())
             }
+            Event::UnhighlightRange => {
+                self.highlight_range = None;
+                self.recompute_on_highlights_or_content_changed()?;
+                Ok(())
+            }
         }
     }
 }
