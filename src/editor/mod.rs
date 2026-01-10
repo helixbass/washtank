@@ -684,14 +684,14 @@ fn compute_printed_line_chunks(
                     if let OpenHighlightOrProgress::OpenHighlight(index_in_highlights) =
                         last_highlight
                     {
-                        let open_highlight = tree_sitter_highlights[index_in_highlights];
+                        let open_highlight = &highlight_ranges[index_in_highlights];
                         if open_highlight.range.end < next_start_byte {
                             let num_bytes_to_print = open_highlight.range.end - current_start_byte;
                             line_chunks.push(LineChunk {
                                 chunk_index,
                                 chunk_start_byte: 0,
                                 chunk_end_byte: num_bytes_to_print,
-                                highlight_type_index: Some(open_highlight.highlight_type_index),
+                                style: Some(open_highlight.style.clone()),
                             });
                             bytes_printed += num_bytes_to_print;
                             last_highlight =
@@ -705,7 +705,7 @@ fn compute_printed_line_chunks(
                                 } else {
                                     chunk.len()
                                 },
-                                highlight_type_index: Some(open_highlight.highlight_type_index),
+                                style: Some(open_highlight.style.clone()),
                             });
                             current_start_byte = next_start_byte;
                             continue;
@@ -714,42 +714,42 @@ fn compute_printed_line_chunks(
                     'more_highlights: while !matches!(
                         last_highlight,
                         OpenHighlightOrProgress::Next(last_highlight_next)
-                            if last_highlight_next >= tree_sitter_highlights.len()
-                                || tree_sitter_highlights[last_highlight_next].start_byte >= next_start_byte
+                            if last_highlight_next >= highlight_ranges.len()
+                                || highlight_ranges[last_highlight_next].range.start >= next_start_byte
                     ) && !matches!(
                         last_highlight,
                         OpenHighlightOrProgress::OpenHighlight(last_highlight_open)
-                            if tree_sitter_highlights[last_highlight_open].end_byte >= next_start_byte
+                            if highlight_ranges[last_highlight_open].range.end >= next_start_byte
                     ) {
                         match last_highlight {
                             OpenHighlightOrProgress::OpenHighlight(last_highlight_open) => {
-                                let open_highlight = tree_sitter_highlights[last_highlight_open];
-                                let num_bytes_to_print = open_highlight.end_byte
+                                let open_highlight = &highlight_ranges[last_highlight_open];
+                                let num_bytes_to_print = open_highlight.range.end
                                     - (current_start_byte + bytes_printed);
                                 line_chunks.push(LineChunk {
                                     chunk_index,
                                     chunk_start_byte: bytes_printed,
                                     chunk_end_byte: bytes_printed + num_bytes_to_print,
-                                    highlight_type_index: Some(open_highlight.highlight_type_index),
+                                    style: Some(open_highlight.style.clone()),
                                 });
                                 bytes_printed += num_bytes_to_print;
                                 last_highlight =
                                     OpenHighlightOrProgress::Next(last_highlight_open + 1);
                             }
                             OpenHighlightOrProgress::Next(last_highlight_next) => {
-                                let next_highlight = tree_sitter_highlights[last_highlight_next];
-                                while next_highlight.end_byte <= current_start_byte {
+                                let next_highlight = &highlight_ranges[last_highlight_next];
+                                while next_highlight.range.end <= current_start_byte {
                                     last_highlight =
                                         OpenHighlightOrProgress::Next(last_highlight_next + 1);
                                     continue 'more_highlights;
                                 }
-                                let num_bytes_to_print = next_highlight.start_byte
+                                let num_bytes_to_print = next_highlight.range.start
                                     - (current_start_byte + bytes_printed);
                                 line_chunks.push(LineChunk {
                                     chunk_index,
                                     chunk_start_byte: bytes_printed,
                                     chunk_end_byte: bytes_printed + num_bytes_to_print,
-                                    highlight_type_index: None,
+                                    style: None,
                                 });
                                 bytes_printed += num_bytes_to_print;
                                 last_highlight =
@@ -763,9 +763,9 @@ fn compute_printed_line_chunks(
                                 chunk_index,
                                 chunk_start_byte: bytes_printed,
                                 chunk_end_byte: chunk.len() - 1,
-                                highlight_type_index: match last_highlight {
+                                style: match last_highlight {
                                     OpenHighlightOrProgress::OpenHighlight(last_highlight_open) =>
-                                        Some(tree_sitter_highlights[last_highlight_open].highlight_type_index),
+                                        Some(highlight_ranges[last_highlight_open].style.clone()),
                                     _ => None
                                 }
                             });
@@ -776,9 +776,9 @@ fn compute_printed_line_chunks(
                                 chunk_index,
                                 chunk_start_byte: bytes_printed,
                                 chunk_end_byte: chunk.len(),
-                                highlight_type_index: match last_highlight {
+                                style: match last_highlight {
                                     OpenHighlightOrProgress::OpenHighlight(last_highlight_open) =>
-                                        Some(tree_sitter_highlights[last_highlight_open].highlight_type_index),
+                                        Some(highlight_ranges[last_highlight_open].style.clone()),
                                     _ => None
                                 }
                             });
