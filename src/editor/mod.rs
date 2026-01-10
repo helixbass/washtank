@@ -436,6 +436,13 @@ impl Editor {
         }
     }
 
+    fn recompute_tree_sitter_tree(&mut self) {
+        self.current_tree_sitter_tree = tree_sitter_mod::parse_from_scratch(
+            self.current_file.rope(),
+            &mut self.tree_sitter_parser,
+        );
+    }
+
     fn recompute_tree_sitter_highlights(&mut self) -> Result<(), anyhow::Error> {
         self.current_tree_sitter_highlights = calculate_highlights(
             &self.tree_sitter_highlight_query,
@@ -458,6 +465,7 @@ impl Editor {
     }
 
     fn recompute_on_highlights_or_content_changed(&mut self) -> Result<(), anyhow::Error> {
+        self.recompute_tree_sitter_tree();
         self.recompute_highlight_ranges()?;
         self.recompute_printed_lines_and_printed_line_chunks();
 
@@ -878,6 +886,7 @@ pub struct Style {
     pub background_color: Option<Color>,
 }
 
+#[derive(Debug)]
 pub struct HighlightRange {
     pub range: Range,
     pub style: Style,
