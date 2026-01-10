@@ -211,6 +211,9 @@ impl<'a> ComponentInterface for EditorGrid<'a> {
                                                 maybe_color => line_chunk.style.as_ref().and_then(|style| {
                                                     style.foreground_color.clone()
                                                 })
+                                                maybe_background_color => line_chunk.style.as_ref().and_then(|style| {
+                                                    style.background_color.clone()
+                                                })
                                           }.into_text_child())
                                       })
                                   ).collect::<Result<_, _>>()?
