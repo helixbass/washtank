@@ -199,7 +199,7 @@ impl<'a> From<&'a LspOutgoingMessage> for LspOutgoingMessageType {
 #[derive(Debug)]
 pub enum LspIncomingMessage {
     InitializeResult(InitializeResult),
-    Hover(Hover),
+    Hover(Option<Hover>),
     PublishDiagnostics(PublishDiagnosticsParams),
 }
 
@@ -223,8 +223,13 @@ impl LspIncomingMessage {
                                 .map_err(|_| Error::Lsp("Couldn't parse response".into()))?,
                         ),
                         LspOutgoingMessageType::Hover => Self::Hover(
-                            serde_json::from_value(response.result.unwrap())
-                                .map_err(|_| Error::Lsp("Couldn't parse response".into()))?,
+                            response
+                                .result
+                                .map(|result| {
+                                    serde_json::from_value(result)
+                                        .map_err(|_| Error::Lsp("Couldn't parse response".into()))
+                                })
+                                .transpose()?,
                         ),
                         LspOutgoingMessageType::Initialized => unreachable!(),
                     }

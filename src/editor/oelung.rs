@@ -171,9 +171,7 @@ impl ReceiveEvent<Happened> for Editor {
                 LspIncomingMessage::Hover(hover) => {
                     unimplemented!()
                 }
-                LspIncomingMessage::PublishDiagnostics(diagnostics) => {
-                    unimplemented!()
-                }
+                LspIncomingMessage::PublishDiagnostics(diagnostics) => {}
             },
         })
     }
