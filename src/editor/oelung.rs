@@ -145,6 +145,12 @@ impl ReceiveEvent<Event> for Editor {
                 self.recompute_on_highlights_or_content_changed()?;
                 Ok(())
             }
+            Event::ShowHoverUnderCursor => {
+                queue_effect(Box::pin(async {
+                    self.send_lsp_hover_under_cursor();
+                }));
+                Ok(())
+            }
         }
     }
 }
@@ -160,6 +166,9 @@ impl ReceiveEvent<Happened> for Editor {
             Happened::Quit => panic!("shouldn't get passed quit"),
             Happened::Lsp(lsp_incoming_message) => match lsp_incoming_message {
                 LspIncomingMessage::InitializeResult(_) => {}
+                LspIncomingMessage::Hover(hover) => {
+                    unimplemented!()
+                }
             },
         })
     }

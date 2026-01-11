@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::cmp::{self, Ordering};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{self, Path, PathBuf};
 use std::pin::Pin;
 use std::process;
 use std::sync::LazyLock;
@@ -77,10 +77,7 @@ impl Editor {
                 let rope = Rope::from_str(strip_trailing_newline(
                     &fs::read_to_string(file_name).await?,
                 ));
-                OpenFile::Named(OpenFileNamed {
-                    rope,
-                    path: file_name.clone(),
-                })
+                OpenFile::Named(OpenFileNamed::new(rope, file_name))
             }
             InitialFile::Anonymous(contents) => {
                 let rope = Rope::from_str(strip_trailing_newline(contents));
@@ -254,7 +251,7 @@ impl Editor {
         self.one_past_printed_line_line_number(&self.printed_lines[self.printed_lines.len() - 1])
     }
 
-    fn cursor_printed_line(&self) -> &PrintedLine {
+    pub(crate) fn cursor_printed_line(&self) -> &PrintedLine {
         &self.printed_lines[usize::from(self.cursor_position.row)]
     }
 
@@ -532,6 +529,13 @@ impl OpenFile {
             Self::Named(file) => &mut file.rope,
         }
     }
+
+    pub fn as_named(&self) -> &OpenFileNamed {
+        match self {
+            Self::Named(file) => file,
+            _ => panic!("expected named"),
+        }
+    }
 }
 
 impl Default for OpenFile {
@@ -548,6 +552,15 @@ pub struct OpenFileAnonymous {
 pub struct OpenFileNamed {
     pub rope: Rope,
     pub path: PathBuf,
+}
+
+impl OpenFileNamed {
+    pub fn new<TPath: AsRef<Path>>(rope: Rope, path: TPath) -> Self {
+        Self {
+            rope,
+            path: path::absolute(path).unwrap(),
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -631,6 +644,7 @@ pub enum Event {
     InsertChar(char),
     HighlightRange(Range),
     UnhighlightRange,
+    ShowHoverUnderCursor,
 }
 
 impl Event {

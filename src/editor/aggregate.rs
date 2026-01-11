@@ -38,6 +38,7 @@ pub enum State {
     InExCommandMode,
     InInsertMode,
     SawDigits(Digits),
+    SawSpace,
 }
 
 impl State {
@@ -156,6 +157,14 @@ impl ReceiveEvent<event::Event, Option<Event>> for EventAggregator {
                 return Ok(Some(Event::InsertChar(
                     is_any_simple_char_press(event).unwrap(),
                 )));
+            }
+            (State::Initial, event) if is_simple_char_press(event, ' ') => {
+                self.state = State::SawSpace;
+                return Ok(None);
+            }
+            (State::SawSpace, event) if is_simple_char_press(event, 't') => {
+                self.state = State::Initial;
+                return Ok(Some(Event::ShowHoverUnderCursor));
             }
             _ => panic!("unexpected event"),
         }

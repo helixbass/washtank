@@ -1,8 +1,12 @@
 use std::collections::HashMap;
 use std::process::Stdio;
+use std::str::FromStr;
 use std::sync::Arc;
 
-use lsp_types::{InitializeParams, InitializeResult};
+use lsp_types::{
+    Hover, HoverParams, InitializeParams, InitializeResult, Position, TextDocumentIdentifier,
+    TextDocumentPositionParams, Uri, WorkDoneProgressParams,
+};
 use oelung_lantern::mpsc::Sender;
 use squalid::_d;
 use tokio::{
@@ -13,8 +17,62 @@ use tokio::{
 
 use crate::{
     jsonrpc::{self, Id},
-    Error, RequestMessage, ResponseMessage, RpcMessage,
+    Editor, Error, PrintedLine, RequestMessage, ResponseMessage, RpcMessage,
 };
+
+impl Editor {
+    pub fn current_file_lsp_text_document_identifier(&self) -> TextDocumentIdentifier {
+        TextDocumentIdentifier {
+            uri: Uri::from_str(&format!(
+                "file://{}",
+                self.current_file
+                    .as_named()
+                    .path
+                    .as_path()
+                    .to_str()
+                    .unwrap()
+            ))
+            .unwrap(),
+        }
+    }
+
+    pub fn current_file_cursor_lsp_position(&self) -> Position {
+        let cursor_line_num = *match self.cursor_printed_line() {
+            PrintedLine::Line(line_num) => line_num,
+            PrintedLine::Fold(_) => panic!("expected not to be called with fold"),
+        };
+        Position {
+            line: u32::try_from(cursor_line_num).unwrap(),
+            character: u32::from(self.cursor_position.column),
+        }
+    }
+
+    pub fn current_file_cursor_lsp_text_document_position_params(
+        &self,
+    ) -> TextDocumentPositionParams {
+        TextDocumentPositionParams {
+            text_document: self.current_file_lsp_text_document_identifier(),
+            position: self.current_file_cursor_lsp_position(),
+        }
+    }
+
+    pub async fn send_lsp_hover_under_cursor(&self) {
+        if matches!(self.cursor_printed_line(), PrintedLine::Fold(_)) {
+            return;
+        }
+
+        self.rust_analyzer_sender
+            .send(LspOutgoingMessage::Hover(HoverParams {
+                text_document_position_params: self
+                    .current_file_cursor_lsp_text_document_position_params(),
+                work_done_progress_params: WorkDoneProgressParams {
+                    work_done_token: None,
+                },
+            }))
+            .await
+            .unwrap();
+    }
+}
 
 pub fn run_rust_analyzer(
     sender: Box<dyn Sender<LspIncomingMessage>>,
@@ -79,6 +137,7 @@ pub fn run_rust_analyzer(
 
 pub enum LspOutgoingMessage {
     Initialize(InitializeParams),
+    Hover(HoverParams),
 }
 
 impl LspOutgoingMessage {
@@ -87,6 +146,9 @@ impl LspOutgoingMessage {
             Self::Initialize(initialize) => {
                 RpcMessage::Request(RequestMessage::with_params(id, "initialize", initialize))
             }
+            Self::Hover(hover) => {
+                RpcMessage::Request(RequestMessage::with_params(id, "hover", hover))
+            }
         }
     }
 }
@@ -94,12 +156,14 @@ impl LspOutgoingMessage {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum LspOutgoingMessageType {
     Initialize,
+    Hover,
 }
 
 impl<'a> From<&'a LspOutgoingMessage> for LspOutgoingMessageType {
     fn from(value: &'a LspOutgoingMessage) -> Self {
         match value {
             LspOutgoingMessage::Initialize(_) => Self::Initialize,
+            LspOutgoingMessage::Hover(_) => Self::Hover,
         }
     }
 }
@@ -107,6 +171,7 @@ impl<'a> From<&'a LspOutgoingMessage> for LspOutgoingMessageType {
 #[derive(Debug)]
 pub enum LspIncomingMessage {
     InitializeResult(InitializeResult),
+    Hover(Hover),
 }
 
 impl LspIncomingMessage {
@@ -124,6 +189,10 @@ impl LspIncomingMessage {
                         })?;
                     match request_type {
                         LspOutgoingMessageType::Initialize => Self::InitializeResult(
+                            serde_json::from_value(response.result.unwrap())
+                                .map_err(|_| Error::Lsp("Couldn't parse response".into()))?,
+                        ),
+                        LspOutgoingMessageType::Hover => Self::Hover(
                             serde_json::from_value(response.result.unwrap())
                                 .map_err(|_| Error::Lsp("Couldn't parse response".into()))?,
                         ),
