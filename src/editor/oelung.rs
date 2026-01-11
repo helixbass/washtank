@@ -169,6 +169,9 @@ impl ReceiveEvent<Happened> for Editor {
                     queue_effect(self.send_lsp_initialized());
                 }
                 LspIncomingMessage::Hover(hover) => {
+                    let Some(hover) = hover.as_ref() else {
+                        return Ok(());
+                    };
                     unimplemented!()
                 }
                 LspIncomingMessage::PublishDiagnostics(diagnostics) => {}
