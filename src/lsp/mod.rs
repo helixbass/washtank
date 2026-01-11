@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use lsp_types::{
     Hover, HoverParams, InitializeParams, InitializeResult, InitializedParams, Position,
-    TextDocumentIdentifier, TextDocumentPositionParams, Uri, WorkDoneProgressParams,
+    PublishDiagnosticsParams, TextDocumentIdentifier, TextDocumentPositionParams, Uri,
+    WorkDoneProgressParams,
 };
 use oelung_lantern::mpsc::Sender;
 use squalid::_d;
@@ -199,6 +200,7 @@ impl<'a> From<&'a LspOutgoingMessage> for LspOutgoingMessageType {
 pub enum LspIncomingMessage {
     InitializeResult(InitializeResult),
     Hover(Hover),
+    PublishDiagnostics(PublishDiagnosticsParams),
 }
 
 impl LspIncomingMessage {
@@ -227,6 +229,13 @@ impl LspIncomingMessage {
                         LspOutgoingMessageType::Initialized => unreachable!(),
                     }
                 }
+            },
+            RpcMessage::Notification(notification) => match &*notification.method {
+                "textDocument/publishDiagnostics" => Self::PublishDiagnostics(
+                    serde_json::from_value(notification.params.unwrap())
+                        .map_err(|_| Error::Lsp("Couldn't parse response".into()))?,
+                ),
+                _ => unimplemented!(),
             },
             _ => unimplemented!(),
         })
