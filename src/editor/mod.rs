@@ -10,7 +10,10 @@ use ::oelung::{Grid, RowOrColumnNumber, Size};
 use anyhow;
 use crossterm::style::Color;
 use futures::future::FutureExt;
-use lsp_types::{ClientCapabilities, ClientInfo, InitializeParams, WorkDoneProgressParams};
+use lsp_types::{
+    ClientCapabilities, ClientInfo, HoverClientCapabilities, InitializeParams,
+    TextDocumentClientCapabilities, WorkDoneProgressParams,
+};
 use oelung_lantern::{generate_sender_from_sender, mpsc::Sender};
 use ropey::{Rope, RopeSlice};
 use smallvec::{smallvec, SmallVec};
@@ -166,7 +169,41 @@ impl Editor {
                 initialization_options: None,
                 capabilities: ClientCapabilities {
                     workspace: None,
-                    text_document: None,
+                    text_document: Some(TextDocumentClientCapabilities {
+                        synchronization: None,
+                        completion: None,
+                        hover: Some(HoverClientCapabilities {
+                            dynamic_registration: None,
+                            content_format: None,
+                        }),
+                        signature_help: None,
+                        references: None,
+                        document_highlight: None,
+                        document_symbol: None,
+                        formatting: None,
+                        range_formatting: None,
+                        on_type_formatting: None,
+                        declaration: None,
+                        definition: None,
+                        type_definition: None,
+                        implementation: None,
+                        code_action: None,
+                        code_lens: None,
+                        document_link: None,
+                        color_provider: None,
+                        rename: None,
+                        publish_diagnostics: None,
+                        folding_range: None,
+                        selection_range: None,
+                        linked_editing_range: None,
+                        call_hierarchy: None,
+                        semantic_tokens: None,
+                        moniker: None,
+                        type_hierarchy: None,
+                        inline_value: None,
+                        inlay_hint: None,
+                        diagnostic: None,
+                    }),
                     notebook_document: None,
                     window: None,
                     general: None,
