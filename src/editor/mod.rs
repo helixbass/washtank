@@ -11,11 +11,14 @@ use anyhow;
 use crossterm::style::Color;
 use futures::future::FutureExt;
 use lsp_types::{ClientCapabilities, ClientInfo, InitializeParams, WorkDoneProgressParams};
-use oelung_lantern::mpsc::Sender;
+use oelung_lantern::{generate_sender_from_sender, mpsc::Sender};
 use ropey::{Rope, RopeSlice};
 use smallvec::{smallvec, SmallVec};
 use squalid::{BoolExt, EverythingExt, _d};
-use tokio::fs;
+use tokio::{
+    fs,
+    sync::mpsc::{self, channel},
+};
 
 use crate::{
     calculate_folds, calculate_indents, run_rust_analyzer, strip_trailing_newline,
@@ -60,6 +63,7 @@ pub struct Editor {
     pub disallow_ex_command_mode: bool,
     pub highlight_range: Option<Range>,
     pub current_highlight_ranges: Vec<HighlightRange>,
+    pub rust_analyzer_sender: mpsc::Sender<LspOutgoingMessage>,
 }
 
 impl Editor {
@@ -148,7 +152,10 @@ impl Editor {
 
         let (rust_analyzer_sender, rust_analyzer_receiver) = channel::<LspOutgoingMessage>(100);
 
-        run_rust_analyzer(sender.clone(), rust_analyzer_receiver);
+        run_rust_analyzer(
+            Box::new(LspSender::from(sender.box_clone())),
+            rust_analyzer_receiver,
+        );
 
         rust_analyzer_sender
             .send(LspOutgoingMessage::Initialize(InitializeParams {
@@ -180,6 +187,7 @@ impl Editor {
                     work_done_token: None,
                 },
             }))
+            .await
             .unwrap();
 
         // let tree_sitter_highlight_names = vec!["comment", "string_literal"];
@@ -221,6 +229,7 @@ impl Editor {
             disallow_ex_command_mode: config.disallow_ex_command_mode,
             highlight_range,
             current_highlight_ranges,
+            rust_analyzer_sender,
         })
     }
 
@@ -1218,3 +1227,5 @@ fn compute_highlight_ranges(
     });
     ret
 }
+
+generate_sender_from_sender!(Happened, Lsp, LspIncomingMessage);

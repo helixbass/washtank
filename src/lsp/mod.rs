@@ -3,14 +3,12 @@ use std::process::Stdio;
 use std::sync::Arc;
 
 use lsp_types::{InitializeParams, InitializeResult};
+use oelung_lantern::mpsc::Sender;
 use squalid::_d;
 use tokio::{
     io::{BufReader, BufWriter},
     process::Command,
-    sync::{
-        mpsc::{Receiver, Sender},
-        RwLock,
-    },
+    sync::{mpsc::Receiver, RwLock},
 };
 
 use crate::{
@@ -19,7 +17,7 @@ use crate::{
 };
 
 pub fn run_rust_analyzer(
-    sender: Sender<LspIncomingMessage>,
+    sender: Box<dyn Sender<LspIncomingMessage>>,
     mut receiver: Receiver<LspOutgoingMessage>,
 ) {
     let mut command = Command::new("rust-analyzer");
