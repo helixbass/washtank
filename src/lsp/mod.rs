@@ -172,7 +172,7 @@ impl LspOutgoingMessage {
                 NotificationMessage::with_params("initialized", initialized),
             ),
             Self::Hover(hover) => {
-                RpcMessage::Request(RequestMessage::with_params(id, "hover", hover))
+                RpcMessage::Request(RequestMessage::with_params(id, "textDocument/hover", hover))
             }
         }
     }
@@ -206,6 +206,7 @@ impl LspIncomingMessage {
         rpc_message: RpcMessage,
         requests: &Arc<RwLock<Requests>>,
     ) -> Result<Self, Error> {
+        eprintln!("incoming lsp message: {rpc_message:#?}");
         Ok(match rpc_message {
             RpcMessage::Response(response) => match response {
                 ResponseMessage::Error(response) => unimplemented!(),
