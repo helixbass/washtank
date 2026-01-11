@@ -13,7 +13,7 @@ use super::{
     known_colors, num_columns_taken_up, Event, Happened, Mode, OpenFile, PrintedLineChunks,
     RowOrColumnNumber,
 };
-use crate::{Editor, Fold, LineNumber};
+use crate::{Editor, Fold, LineNumber, LspIncomingMessage};
 
 impl<'a> ComponentInterface for &'a Editor {
     fn render(&self, grid: Grid) -> Result<Component<'_>, anyhow::Error> {
@@ -150,16 +150,18 @@ impl ReceiveEvent<Event> for Editor {
 }
 
 impl ReceiveEvent<Happened> for Editor {
-    #[instrument(level = "trace", skip(self, event, queue_effect))]
+    #[instrument(level = "trace", skip(self, event, _queue_effect))]
     fn receive<TQueueEffect: FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)>(
         &mut self,
         event: &Happened,
-        queue_effect: TQueueEffect,
+        _queue_effect: TQueueEffect,
     ) -> Result<(), anyhow::Error> {
-        match event {
+        Ok(match event {
             Happened::Quit => panic!("shouldn't get passed quit"),
-            Happened::Lsp(lsp_incoming_message) => match lsp_incoming_message {},
-        }
+            Happened::Lsp(lsp_incoming_message) => match lsp_incoming_message {
+                LspIncomingMessage::InitializeResult(_) => {}
+            },
+        })
     }
 }
 
