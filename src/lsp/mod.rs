@@ -42,14 +42,16 @@ pub fn run_rust_analyzer(
         let requests = requests.clone();
         async move {
             loop {
-                sender.send(
-                    LspIncomingMessage::from_rpc_message(
-                        reader.read_message().await.unwrap(),
-                        &requests,
+                sender
+                    .send(
+                        LspIncomingMessage::from_rpc_message(
+                            reader.read_message().await.unwrap(),
+                            &requests,
+                        )
+                        .await
+                        .unwrap(),
                     )
-                    .await
-                    .unwrap(),
-                );
+                    .await;
             }
         }
     });
