@@ -42,6 +42,10 @@ async fn main() -> Result<(), anyhow::Error> {
                 }
             }
             World::Editor(editor::Happened::Quit) => break,
+            World::Editor(editor_happened) => {
+                editor.receive(&editor_happened, |future| queued_effects.push(future))?;
+                render_screen(&mut renderer, &editor)?;
+            }
         }
         for effect in queued_effects {
             tokio::spawn(effect);

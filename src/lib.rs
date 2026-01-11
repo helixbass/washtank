@@ -3,6 +3,7 @@ use std::io::Write;
 
 mod config;
 pub mod editor;
+mod error;
 mod fold;
 mod indent;
 mod jsonrpc;
@@ -11,9 +12,10 @@ pub mod tree_sitter;
 
 pub use config::{Args, Config, ConfigBuilder, InitialFile};
 pub use editor::{Editor, EventAggregator, Offset, PrintedLine, Range};
+pub use error::Error;
 pub use fold::{calculate_folds, Fold, FoldIndex};
 pub use indent::{calculate_indents, IndentLevel};
-pub use jsonrpc::{RequestMessage, RpcMessage};
+pub use jsonrpc::{RequestMessage, ResponseMessage, RpcMessage};
 pub use lsp::{run_rust_analyzer, LspIncomingMessage, LspOutgoingMessage};
 pub use tree_sitter::TreeSitterHighlight;
 

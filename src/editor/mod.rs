@@ -3,12 +3,14 @@ use std::cmp::{self, Ordering};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::process;
 use std::sync::LazyLock;
 
 use ::oelung::{Grid, RowOrColumnNumber, Size};
 use anyhow;
 use crossterm::style::Color;
 use futures::future::FutureExt;
+use lsp_types::{ClientCapabilities, ClientInfo, InitializeParams, WorkDoneProgressParams};
 use oelung_lantern::mpsc::Sender;
 use ropey::{Rope, RopeSlice};
 use smallvec::{smallvec, SmallVec};
@@ -16,9 +18,10 @@ use squalid::{BoolExt, EverythingExt, _d};
 use tokio::fs;
 
 use crate::{
-    calculate_folds, calculate_indents, strip_trailing_newline,
+    calculate_folds, calculate_indents, run_rust_analyzer, strip_trailing_newline,
     tree_sitter::{self as tree_sitter_mod, calculate_highlights},
-    Config, Fold, FoldIndex, IndentLevel, InitialFile, LineNumber, TreeSitterHighlight,
+    Config, Fold, FoldIndex, IndentLevel, InitialFile, LineNumber, LspIncomingMessage,
+    LspOutgoingMessage, TreeSitterHighlight,
 };
 
 mod aggregate;
@@ -143,22 +146,41 @@ impl Editor {
             &current_highlight_ranges,
         );
 
-        // let (rust_analyzer_sender, rust_analyzer_receiver) = channel::<LspOutgoingMessage>(100);
+        let (rust_analyzer_sender, rust_analyzer_receiver) = channel::<LspOutgoingMessage>(100);
 
-        // run_rust_analyzer(sender.clone(), rust_analyzer_receiver);
+        run_rust_analyzer(sender.clone(), rust_analyzer_receiver);
 
-        // // rust_analyzer_sender
-        // //     .send(LspOutgoingMessage::Initialize(InitializeParams {
-        // //         // TODO: is std::process:id() blocking aka shouldn't use it
-        // //         // from tokio?
-        // //         process_id: Some(process::id()),
-        // //         client_info: Some(ClientInfo {
-        // //             name: "washtank".to_owned(),
-        // //             // TODO: make this real?
-        // //             version: Some("0.0.1-dev.0".to_owned()),
-        // //         }),
-        // //     }))
-        // //     .unwrap();
+        rust_analyzer_sender
+            .send(LspOutgoingMessage::Initialize(InitializeParams {
+                // TODO: is std::process:id() blocking aka shouldn't use it
+                // from tokio?
+                process_id: Some(process::id()),
+                #[allow(deprecated)]
+                root_path: None,
+                #[allow(deprecated)]
+                root_uri: None,
+                initialization_options: None,
+                capabilities: ClientCapabilities {
+                    workspace: None,
+                    text_document: None,
+                    notebook_document: None,
+                    window: None,
+                    general: None,
+                    experimental: None,
+                },
+                trace: None,
+                workspace_folders: None,
+                client_info: Some(ClientInfo {
+                    name: "washtank".to_owned(),
+                    // TODO: make this real?
+                    version: Some("0.0.1-dev.0".to_owned()),
+                }),
+                locale: None,
+                work_done_progress_params: WorkDoneProgressParams {
+                    work_done_token: None,
+                },
+            }))
+            .unwrap();
 
         // let tree_sitter_highlight_names = vec!["comment", "string_literal"];
         Ok(Self {
@@ -600,7 +622,6 @@ pub enum Event {
     InsertChar(char),
     HighlightRange(Range),
     UnhighlightRange,
-    // Lsp(LspIncomingMessage),
 }
 
 impl Event {
@@ -857,6 +878,7 @@ impl Mode {
 
 #[derive(Debug)]
 pub enum Happened {
+    Lsp(LspIncomingMessage),
     Quit,
 }
 

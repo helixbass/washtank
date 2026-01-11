@@ -1,13 +1,22 @@
+use std::collections::HashMap;
 use std::process::Stdio;
+use std::sync::Arc;
 
-use lsp_types::InitializeParams;
+use lsp_types::{InitializeParams, InitializeResult};
+use squalid::_d;
 use tokio::{
     io::{BufReader, BufWriter},
     process::Command,
-    sync::mpsc::{Receiver, Sender},
+    sync::{
+        mpsc::{Receiver, Sender},
+        RwLock,
+    },
 };
 
-use crate::{jsonrpc, RequestMessage, RpcMessage};
+use crate::{
+    jsonrpc::{self, Id},
+    Error, RequestMessage, ResponseMessage, RpcMessage,
+};
 
 pub fn run_rust_analyzer(
     sender: Sender<LspIncomingMessage>,
@@ -29,10 +38,21 @@ pub fn run_rust_analyzer(
         panic!("rust-analyzer finished")
     });
 
-    tokio::spawn(async move {
-        loop {
-            sender
-                .send(LspIncomingMessage::try_from(reader.read_message().await.unwrap()).unwrap());
+    let requests: Arc<RwLock<Requests>> = _d();
+
+    tokio::spawn({
+        let requests = requests.clone();
+        async move {
+            loop {
+                sender.send(
+                    LspIncomingMessage::from_rpc_message(
+                        reader.read_message().await.unwrap(),
+                        &requests,
+                    )
+                    .await
+                    .unwrap(),
+                );
+            }
         }
     });
 
@@ -41,12 +61,14 @@ pub fn run_rust_analyzer(
         let mut next_id = 1;
 
         while let Some(message) = receiver.recv().await {
+            let id = next_id;
+            next_id += 1;
+            requests
+                .write()
+                .await
+                .insert(id.into(), LspOutgoingMessageType::from(&message));
             writer
-                .write_rpc_message(&message.into_rpc_message({
-                    let id = next_id;
-                    next_id += 1;
-                    id
-                }))
+                .write_rpc_message(&message.into_rpc_message(id))
                 .await
                 .unwrap();
         }
@@ -69,12 +91,48 @@ impl LspOutgoingMessage {
     }
 }
 
-pub enum LspIncomingMessage {}
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum LspOutgoingMessageType {
+    Initialize,
+}
 
-impl TryFrom<RpcMessage> for LspIncomingMessage {
-    type Error = String;
-
-    fn try_from(value: RpcMessage) -> Result<Self, Self::Error> {
-        unimplemented!()
+impl<'a> From<&'a LspOutgoingMessage> for LspOutgoingMessageType {
+    fn from(value: &'a LspOutgoingMessage) -> Self {
+        match value {
+            LspOutgoingMessage::Initialize(_) => Self::Initialize,
+        }
     }
 }
+
+#[derive(Debug)]
+pub enum LspIncomingMessage {
+    InitializeResult(InitializeResult),
+}
+
+impl LspIncomingMessage {
+    pub async fn from_rpc_message(
+        rpc_message: RpcMessage,
+        requests: &Arc<RwLock<Requests>>,
+    ) -> Result<Self, Error> {
+        Ok(match rpc_message {
+            RpcMessage::Response(response) => match response {
+                ResponseMessage::Error(response) => unimplemented!(),
+                ResponseMessage::Success(response) => {
+                    let request_type =
+                        *requests.read().await.get(&response.id).ok_or_else(|| {
+                            Error::Lsp("Got response for non-existent request".into())
+                        })?;
+                    match request_type {
+                        LspOutgoingMessageType::Initialize => Self::InitializeResult(
+                            serde_json::from_value(response.result.unwrap())
+                                .map_err(|_| Error::Lsp("Couldn't parse response".into()))?,
+                        ),
+                    }
+                }
+            },
+            _ => unimplemented!(),
+        })
+    }
+}
+
+pub type Requests = HashMap<Id, LspOutgoingMessageType>;

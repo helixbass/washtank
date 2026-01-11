@@ -10,7 +10,8 @@ use squalid::{_d, regex};
 use tracing::instrument;
 
 use super::{
-    known_colors, num_columns_taken_up, Event, Mode, OpenFile, PrintedLineChunks, RowOrColumnNumber,
+    known_colors, num_columns_taken_up, Event, Happened, Mode, OpenFile, PrintedLineChunks,
+    RowOrColumnNumber,
 };
 use crate::{Editor, Fold, LineNumber};
 
@@ -144,6 +145,20 @@ impl ReceiveEvent<Event> for Editor {
                 self.recompute_on_highlights_or_content_changed()?;
                 Ok(())
             }
+        }
+    }
+}
+
+impl ReceiveEvent<Happened> for Editor {
+    #[instrument(level = "trace", skip(self, event, queue_effect))]
+    fn receive<TQueueEffect: FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)>(
+        &mut self,
+        event: &Happened,
+        queue_effect: TQueueEffect,
+    ) -> Result<(), anyhow::Error> {
+        match event {
+            Happened::Quit => panic!("shouldn't get passed quit"),
+            Happened::Lsp(lsp_incoming_message) => match lsp_incoming_message {},
         }
     }
 }
