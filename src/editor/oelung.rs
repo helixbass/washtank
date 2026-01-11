@@ -50,7 +50,7 @@ impl ReceiveEvent<Event> for Editor {
     fn receive<TQueueEffect: FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)>(
         &mut self,
         event: &Event,
-        queue_effect: TQueueEffect,
+        mut queue_effect: TQueueEffect,
     ) -> Result<(), anyhow::Error> {
         match event {
             Event::MoveCursorDownNLines(n) => {
@@ -146,9 +146,9 @@ impl ReceiveEvent<Event> for Editor {
                 Ok(())
             }
             Event::ShowHoverUnderCursor => {
-                queue_effect(Box::pin(async {
-                    self.send_lsp_hover_under_cursor();
-                }));
+                if let Some(effect) = self.send_lsp_hover_under_cursor() {
+                    queue_effect(effect);
+                }
                 Ok(())
             }
         }

@@ -665,7 +665,8 @@ impl Event {
             | Self::MoveCursorToEndOfLine
             | Self::GoIntoInsertMode
             | Self::HighlightRange(_)
-            | Self::UnhighlightRange => false,
+            | Self::UnhighlightRange
+            | Self::ShowHoverUnderCursor => false,
             Self::InsertChar(_) | Self::FinishExCommand => true,
         }
     }

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::pin::Pin;
 use std::process::Stdio;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -56,21 +57,27 @@ impl Editor {
         }
     }
 
-    pub async fn send_lsp_hover_under_cursor(&self) {
+    pub fn send_lsp_hover_under_cursor(
+        &self,
+    ) -> Option<Pin<Box<dyn Future<Output = ()> + Send + 'static>>> {
         if matches!(self.cursor_printed_line(), PrintedLine::Fold(_)) {
-            return;
+            return None;
         }
 
-        self.rust_analyzer_sender
-            .send(LspOutgoingMessage::Hover(HoverParams {
-                text_document_position_params: self
-                    .current_file_cursor_lsp_text_document_position_params(),
-                work_done_progress_params: WorkDoneProgressParams {
-                    work_done_token: None,
-                },
-            }))
-            .await
-            .unwrap();
+        let hover_message = LspOutgoingMessage::Hover(HoverParams {
+            text_document_position_params: self
+                .current_file_cursor_lsp_text_document_position_params(),
+            work_done_progress_params: WorkDoneProgressParams {
+                work_done_token: None,
+            },
+        });
+
+        Some(Box::pin({
+            let rust_analyzer_sender = self.rust_analyzer_sender.clone();
+            async move {
+                rust_analyzer_sender.send(hover_message).await.unwrap();
+            }
+        }))
     }
 }
 
