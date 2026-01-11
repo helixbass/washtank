@@ -156,16 +156,18 @@ impl ReceiveEvent<Event> for Editor {
 }
 
 impl ReceiveEvent<Happened> for Editor {
-    #[instrument(level = "trace", skip(self, event, _queue_effect))]
+    #[instrument(level = "trace", skip(self, event, queue_effect))]
     fn receive<TQueueEffect: FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)>(
         &mut self,
         event: &Happened,
-        _queue_effect: TQueueEffect,
+        mut queue_effect: TQueueEffect,
     ) -> Result<(), anyhow::Error> {
         Ok(match event {
             Happened::Quit => panic!("shouldn't get passed quit"),
             Happened::Lsp(lsp_incoming_message) => match lsp_incoming_message {
-                LspIncomingMessage::InitializeResult(_) => {}
+                LspIncomingMessage::InitializeResult(_) => {
+                    queue_effect(self.send_lsp_initialized());
+                }
                 LspIncomingMessage::Hover(hover) => {
                     unimplemented!()
                 }

@@ -412,11 +412,11 @@ impl NotificationMessage {
     }
 
     /// Create a new notification message with parameters.
-    pub fn with_params(method: impl Into<String>, params: serde_json::Value) -> Self {
+    pub fn with_params<TParams: Serialize>(method: impl Into<String>, params: TParams) -> Self {
         Self {
             jsonrpc: "2.0".to_string(),
             method: method.into(),
-            params: Some(params),
+            params: Some(serde_json::to_value(params).unwrap()),
         }
     }
 }

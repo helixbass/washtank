@@ -15,7 +15,7 @@ pub use editor::{Editor, EventAggregator, Offset, PrintedLine, Range};
 pub use error::Error;
 pub use fold::{calculate_folds, Fold, FoldIndex};
 pub use indent::{calculate_indents, IndentLevel};
-pub use jsonrpc::{RequestMessage, ResponseMessage, RpcMessage};
+pub use jsonrpc::{NotificationMessage, RequestMessage, ResponseMessage, RpcMessage};
 pub use lsp::{run_rust_analyzer, LspIncomingMessage, LspOutgoingMessage};
 pub use tree_sitter::TreeSitterHighlight;
 

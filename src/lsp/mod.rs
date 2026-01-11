@@ -5,8 +5,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use lsp_types::{
-    Hover, HoverParams, InitializeParams, InitializeResult, Position, TextDocumentIdentifier,
-    TextDocumentPositionParams, Uri, WorkDoneProgressParams,
+    Hover, HoverParams, InitializeParams, InitializeResult, InitializedParams, Position,
+    TextDocumentIdentifier, TextDocumentPositionParams, Uri, WorkDoneProgressParams,
 };
 use oelung_lantern::mpsc::Sender;
 use squalid::_d;
@@ -18,7 +18,7 @@ use tokio::{
 
 use crate::{
     jsonrpc::{self, Id},
-    Editor, Error, PrintedLine, RequestMessage, ResponseMessage, RpcMessage,
+    Editor, Error, NotificationMessage, PrintedLine, RequestMessage, ResponseMessage, RpcMessage,
 };
 
 impl Editor {
@@ -78,6 +78,20 @@ impl Editor {
                 rust_analyzer_sender.send(hover_message).await.unwrap();
             }
         }))
+    }
+
+    pub fn send_lsp_initialized(&self) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+        let initialized_message = LspOutgoingMessage::Initialized(InitializedParams {});
+
+        Box::pin({
+            let rust_analyzer_sender = self.rust_analyzer_sender.clone();
+            async move {
+                rust_analyzer_sender
+                    .send(initialized_message)
+                    .await
+                    .unwrap();
+            }
+        })
     }
 }
 
@@ -144,6 +158,7 @@ pub fn run_rust_analyzer(
 
 pub enum LspOutgoingMessage {
     Initialize(InitializeParams),
+    Initialized(InitializedParams),
     Hover(HoverParams),
 }
 
@@ -153,6 +168,9 @@ impl LspOutgoingMessage {
             Self::Initialize(initialize) => {
                 RpcMessage::Request(RequestMessage::with_params(id, "initialize", initialize))
             }
+            Self::Initialized(initialized) => RpcMessage::Notification(
+                NotificationMessage::with_params("initialized", initialized),
+            ),
             Self::Hover(hover) => {
                 RpcMessage::Request(RequestMessage::with_params(id, "hover", hover))
             }
@@ -163,6 +181,7 @@ impl LspOutgoingMessage {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum LspOutgoingMessageType {
     Initialize,
+    Initialized,
     Hover,
 }
 
@@ -170,6 +189,7 @@ impl<'a> From<&'a LspOutgoingMessage> for LspOutgoingMessageType {
     fn from(value: &'a LspOutgoingMessage) -> Self {
         match value {
             LspOutgoingMessage::Initialize(_) => Self::Initialize,
+            LspOutgoingMessage::Initialized(_) => Self::Initialized,
             LspOutgoingMessage::Hover(_) => Self::Hover,
         }
     }
@@ -203,6 +223,7 @@ impl LspIncomingMessage {
                             serde_json::from_value(response.result.unwrap())
                                 .map_err(|_| Error::Lsp("Couldn't parse response".into()))?,
                         ),
+                        LspOutgoingMessageType::Initialized => unreachable!(),
                     }
                 }
             },
